@@ -7,16 +7,20 @@ def _clamp(value: int | float, low: int | float, high: int | float):
     return max(low, min(high, value))
 
 
-def _step_from_export(p_export_kw: float, p_start_kw: float, p_phase_max_kw: float) -> int:
-    if p_export_kw <= p_start_kw:
+def _step_from_export(p_flow_kw: float, p_start_kw: float, p_phase_max_kw: float) -> int:
+    # p_flow_kw > 0 -> export LV->MV (prefer charging, positive P_storage)
+    # p_flow_kw < 0 -> import MV->LV (allow discharge, negative P_storage)
+    if abs(p_flow_kw) <= p_start_kw:
         return 0
-    if p_export_kw <= 0.25 * p_phase_max_kw:
-        return 1
-    if p_export_kw <= 0.50 * p_phase_max_kw:
-        return 2
-    if p_export_kw <= 0.75 * p_phase_max_kw:
-        return 3
-    return 4
+    sign = 1 if p_flow_kw > 0 else -1
+    abs_flow = abs(p_flow_kw)
+    if abs_flow <= 0.25 * p_phase_max_kw:
+        return 1 * sign
+    if abs_flow <= 0.50 * p_phase_max_kw:
+        return 2 * sign
+    if abs_flow <= 0.75 * p_phase_max_kw:
+        return 3 * sign
+    return 4 * sign
 
 
 def _unbalance_step(di: float, threshold_1: float, threshold_2: float) -> int:
@@ -48,8 +52,8 @@ def apply_storage_tr_control(case_data, pf_objects, params) -> None:
     i_avg = sum(float(tr_i[p]) for p in PHASES) / len(PHASES)
 
     for phase in PHASES:
-        p_export_phase = max(0.0, -float(tr_p[phase]))
-        step_export = _step_from_export(p_export_phase, p_start_kw, p_phase_max_kw)
+        p_flow_phase = -float(tr_p[phase])
+        step_export = _step_from_export(p_flow_phase, p_start_kw, p_phase_max_kw)
         di = 0.0 if i_avg <= 1e-9 else (float(tr_i[phase]) - i_avg) / i_avg
         step_unbalance = _unbalance_step(di, th1, th2)
         step_final = int(_clamp(step_export + step_unbalance, -4, 4))

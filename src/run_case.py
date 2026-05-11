@@ -82,7 +82,7 @@ def run_case(case_name: str) -> dict:
             apply_storage_tr_control(after_pv, pf_objects, cfg["control_params"])
         elif case_cfg["storage_control"] == "step_local_voltage":
             apply_storage_end_control(
-                {"critical_node_name": critical_node_name, "critical_node_voltages": critical_node_row},
+                {"critical_node_voltages": critical_node_row},
                 pf_objects,
                 cfg["control_params"],
             )

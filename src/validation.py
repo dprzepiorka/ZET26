@@ -56,13 +56,18 @@ def validate_storage_limits(storage_setpoints: list[dict], params: dict) -> list
 def validate_transformer_signs(transformer: dict) -> list[str]:
     violations = []
     p_map = transformer.get("p_kw", {})
+    phasors = transformer.get("phasors", {})
+    u_complex = phasors.get("u_complex", {})
+    i_complex = phasors.get("i_complex", {})
     for phase in PHASES:
         if phase not in p_map:
             continue
         p = float(p_map[phase])
-        export = max(0.0, -p)
-        if p < 0 and export <= 0:
-            violations.append(f"Inconsistent export sign at {phase}")
+        if phase in u_complex and phase in i_complex:
+            s_calc = u_complex[phase] * i_complex[phase].conjugate() / 1000.0
+            p_calc = float(s_calc.real)
+            if p != 0 and p_calc != 0 and (p > 0) != (p_calc > 0):
+                violations.append(f"Inconsistent transformer sign convention at {phase}")
     return violations
 
 

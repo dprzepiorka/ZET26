@@ -5,7 +5,7 @@ from typing import List
 
 import numpy as np
 
-from PSO import PSO
+from PSO import PSO  # local optimizer module shipped with this repository
 from src.indicators import calculate_indicators
 from src.powerfactory_interface import PHASES
 from src.validation import validate_allowed_pso_variables
