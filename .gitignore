@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+results/
+input_study.xlsx
+pso_checkpoint*.npz
+*_history.txt
+failed_evals_pso.csv
+pso_exception.log
+pso_save_error.log
