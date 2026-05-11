@@ -46,7 +46,7 @@ class PowerFactoryInterface:
         v = row.get(key, 0.0)
         try:
             return float(v)
-        except Exception:
+        except (TypeError, ValueError):
             return 0.0
 
     def _node_id(self, row: Dict) -> str:
@@ -124,7 +124,7 @@ class PowerFactoryInterface:
         if self.storage_units:
             for s in self.storage_units:
                 sid = str(s.get("object_id"))
-                vals = self.storage_p_setpoints.get(sid, storage_phase)
+                vals = self.storage_p_setpoints.get(sid, {"L1": 0.0, "L2": 0.0, "L3": 0.0})
                 storage_setpoints.append(
                     {
                         "object_id": sid,

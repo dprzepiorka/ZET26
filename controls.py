@@ -10,7 +10,7 @@ from metrics import calculate_indicators
 def _f(v, default=0.0) -> float:
     try:
         return float(v)
-    except Exception:
+    except (TypeError, ValueError):
         return float(default)
 
 

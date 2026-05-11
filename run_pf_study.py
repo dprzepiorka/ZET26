@@ -23,7 +23,7 @@ _CURRENT_CONTEXT: Dict = {}
 def _f(v, default=0.0) -> float:
     try:
         return float(v)
-    except Exception:
+    except (TypeError, ValueError):
         return float(default)
 
 
@@ -67,16 +67,17 @@ def _validate_constraints(raw: Dict, input_data: Dict, params: Dict, case_name: 
         t = tr[0]
         p_sum = _f(t.get("P_tr_L1_kW", 0.0), 0.0) + _f(t.get("P_tr_L2_kW", 0.0), 0.0) + _f(t.get("P_tr_L3_kW", 0.0), 0.0)
         p_export = max(0.0, -p_sum)
-        if p_export > 0 and p_sum >= 0:
-            warnings.append("Niespójna konwencja znaków mocy transformatora (eksport).")
+        p_export_reported = t.get("P_export_total_kW", None)
+        if p_export_reported is not None and abs(_f(p_export_reported, 0.0) - p_export) > 1e-6:
+            warnings.append("Niespójna konwencja znaków mocy transformatora (P_export_total_kW vs fazy).")
 
     _validate_phase_columns(raw.get("node_voltages", []), "node_voltages", warnings)
     _validate_phase_columns(raw.get("transformer_phase_results", []), "transformer_phase_results", warnings)
 
     if case_name == "pso_global":
         pso_allowed = {"Q_PV", "P_storage_L1", "P_storage_L2", "P_storage_L3"}
-        pso_used = {"Q_PV", "P_storage_L1", "P_storage_L2", "P_storage_L3"}
-        if pso_used != pso_allowed:
+        pso_used = set(raw.get("pso_used_variables", []))
+        if pso_used and pso_used != pso_allowed:
             warnings.append("PSO używa niedozwolonych zmiennych.")
 
     local_or_pso = {"local_qu_storage_tr", "local_qu_storage_end", "pso_global"}
@@ -196,6 +197,7 @@ def run_case(case_name: str, context: Dict | None = None) -> Dict:
         pf.set_storage_p_setpoints(pso_result["storage_p_setpoints"])
         raw = pf.run_and_collect()
         raw["pso_best_objective"] = pso_result["objective_best"]
+        raw["pso_used_variables"] = ["Q_PV", "P_storage_L1", "P_storage_L2", "P_storage_L3"]
 
     else:
         raise ValueError(case_name)

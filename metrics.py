@@ -95,7 +95,7 @@ def calculate_indicators(results_raw: Dict) -> Dict[str, float]:
 
 def _ratio(base: float, case: float) -> float:
     if base == 0:
-        return 0.0
+        return float("nan")
     return (base - case) / base * 100.0
 
 
@@ -129,6 +129,6 @@ def comparison_to_pso(all_indicators: Dict[str, Dict[str, float]], base_case: st
             pso_m = float(pso.get(m, 0.0))
             local_m = float(ind.get(m, 0.0))
             denom = base_m - pso_m
-            row[f"{m}_effectiveness_vs_pso_percent"] = 0.0 if denom == 0 else (base_m - local_m) / denom * 100.0
+            row[f"{m}_effectiveness_vs_pso_percent"] = float("nan") if denom == 0 else (base_m - local_m) / denom * 100.0
         rows.append(row)
     return rows
