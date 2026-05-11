@@ -86,6 +86,7 @@ END_U_UNBALANCE_BOOST_PU = 0.005
 VOLTAGE_MIN_PU = 0.90
 VOLTAGE_MAX_PU = 1.10
 LOADING_MAX_PERCENT = 100.0
+NOMINAL_VOLTAGE_PU = 1.0
 
 # PSO - optymalizuje tylko Q_PV oraz P_storage_L1/L2/L3.
 PSO_N_PARTICLES = 40
@@ -193,9 +194,7 @@ def ensure_excel_cache() -> Dict[str, List[Dict[str, Any]]]:
     return EXCEL_CACHE
 
 
-def read_excel_sheet(path: str, sheet: str) -> List[Dict[str, Any]]:
-    if path != EXCEL_FILE:
-        raise RuntimeError(f"Obsługiwany jest tylko skonfigurowany plik wejściowy: {EXCEL_FILE}")
+def read_excel_sheet(sheet: str) -> List[Dict[str, Any]]:
     return ensure_excel_cache().get(sheet, [])
 
 
@@ -255,7 +254,7 @@ def run_loadflow(ldf: Any) -> None:
 
 def set_initial_model_from_excel(app: Any) -> None:
     """Ustawia obciążenia, generatory, PV i magazyny/statgeny z dane.xlsx."""
-    for row in read_excel_sheet(EXCEL_FILE, "Loads"):
+    for row in read_excel_sheet("Loads"):
         elm = find_element(app, str(_row_value(row, "name", "Name", default="")).strip(), "ElmLod")
         if elm is None:
             continue
@@ -267,7 +266,7 @@ def set_initial_model_from_excel(app: Any) -> None:
         set_attr(elm, ["qlinit"], _as_float(_row_value(row, "Q3"), 0.0))
 
     for sheet, cls in [("Generators", "ElmSym"), ("PV", "ElmPvsys"), ("StatGen", "ElmGenstat")]:
-        for row in read_excel_sheet(EXCEL_FILE, sheet):
+        for row in read_excel_sheet(sheet):
             elm = find_element(app, str(_row_value(row, "name", "Name", default="")).strip(), cls)
             if elm is None:
                 continue
@@ -277,7 +276,7 @@ def set_initial_model_from_excel(app: Any) -> None:
 
 def load_control_config() -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
-    for row in read_excel_sheet(EXCEL_FILE, "ControlConfig"):
+    for row in read_excel_sheet("ControlConfig"):
         key = str(_row_value(row, "parameter", "Parameter", default="")).strip()
         if not key:
             continue
@@ -304,7 +303,7 @@ def apply_runtime_config_from_excel() -> None:
 
 def load_storage_steps_from_excel() -> List[float]:
     values: List[float] = []
-    for row in read_excel_sheet(EXCEL_FILE, "StorageSteps"):
+    for row in read_excel_sheet("StorageSteps"):
         p_rel = _row_value(row, "p_rel")
         if p_rel is not None:
             values.append(_as_float(p_rel, 0.0))
@@ -323,7 +322,7 @@ def load_storage_steps_from_excel() -> List[float]:
 
 
 def load_storage_candidates() -> List[Dict[str, str]]:
-    rows = read_excel_sheet(EXCEL_FILE, "StorageCandidates")
+    rows = read_excel_sheet("StorageCandidates")
     return [
         {
             "node": str(r.get("node", "")).strip(),
@@ -622,11 +621,7 @@ def transformer_storage_rule(tr_row: Dict[str, Any]) -> List[Dict[str, Any]]:
         step_rel = export_step_rel(p_export)
         step_idx = nearest_storage_index(step_rel)
         d_i = (i - i_avg) / i_avg if i_avg > EPS else 0.0
-        step_sign = 0
-        if step_rel > 0:
-            step_sign = 1
-        elif step_rel < 0:
-            step_sign = -1
+        step_sign = (step_rel > 0) - (step_rel < 0)
         if d_i > TR_I_UNBALANCE_THRESHOLD_2:
             step_idx = shift_storage_index(step_idx, 2 * step_sign)
         elif d_i > TR_I_UNBALANCE_THRESHOLD_1:
@@ -662,10 +657,10 @@ def node_voltage_row(raw: Dict[str, List[Dict[str, Any]]], node: str) -> Dict[st
 def end_node_storage_rule(v_row: Dict[str, Any]) -> List[Dict[str, Any]]:
     u_vals = [float(v_row.get(f"U_{ph}_pu") or 1.0) for ph in PHASES]
     u_avg = sum(u_vals) / 3.0
-    u_low_start = 2.0 - END_U_START_PU
-    u_low_25 = 2.0 - END_U_STEP_25_PU
-    u_low_50 = 2.0 - END_U_STEP_50_PU
-    u_low_75 = 2.0 - END_U_STEP_75_PU
+    u_low_start = 2.0 * NOMINAL_VOLTAGE_PU - END_U_START_PU
+    u_low_25 = 2.0 * NOMINAL_VOLTAGE_PU - END_U_STEP_25_PU
+    u_low_50 = 2.0 * NOMINAL_VOLTAGE_PU - END_U_STEP_50_PU
+    u_low_75 = 2.0 * NOMINAL_VOLTAGE_PU - END_U_STEP_75_PU
     rows: List[Dict[str, Any]] = []
     for ph, u in zip(PHASES, u_vals):
         if u >= END_U_STEP_75_PU:
