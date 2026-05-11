@@ -71,12 +71,6 @@ P_STORAGE_PHASE_MAX_KW = 20.0
 P_STORAGE_START_KW = 1.0
 STORAGE_STEPS = [0, 25, 50, 75, 100]
 
-# Q(U) falowników PV: Q > 0 oznacza indukcyjny pobór mocy biernej przez falownik.
-QU_U_MIN_FULL = 0.95
-QU_U_MIN_DEADBAND = 0.97
-QU_U_MAX_DEADBAND = 1.03
-QU_U_MAX_FULL = 1.08
-
 # Reguła magazynu przy transformatorze.
 TR_I_UNBALANCE_THRESHOLD_1 = 0.05
 TR_I_UNBALANCE_THRESHOLD_2 = 0.10
@@ -114,6 +108,9 @@ PHASES = ("L1", "L2", "L3")
 PF_PHASE = {"L1": "A", "L2": "B", "L3": "C"}
 PHASE_ATTR_P_LOAD = {"L1": "plinir", "L2": "plinis", "L3": "plinit"}
 PHASE_ATTR_Q_LOAD = {"L1": "qlinir", "L2": "qlinis", "L3": "qlinit"}
+EXCEL_CACHE: Optional[Dict[str, List[Dict[str, Any]]]] = None
+CONTROL_CONFIG: Dict[str, Any] = {}
+STORAGE_P_REL_STEPS: List[float] = []
 
 # =============================================================================
 # NARZĘDZIA POWERFACTORY I EXCEL
@@ -140,25 +137,66 @@ def connect_powerfactory() -> Tuple[Any, Any]:
     return app, ldf
 
 
-def read_excel_sheet(path: str, sheet: str) -> List[Dict[str, Any]]:
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return float(default)
+        if isinstance(value, str):
+            value = value.strip().replace(",", ".")
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _row_value(row: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    lower_map = {str(k).strip().lower(): v for k, v in row.items()}
+    for key in keys:
+        key_lower = str(key).strip().lower()
+        if key_lower in lower_map and lower_map[key_lower] not in (None, ""):
+            return lower_map[key_lower]
+    return default
+
+
+def load_excel_cache(path: str) -> Dict[str, List[Dict[str, Any]]]:
     if load_workbook is None:
         raise RuntimeError("Do czytania Excela potrzebny jest pakiet openpyxl.")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Nie znaleziono pliku Excel: {path}")
     wb = load_workbook(path, read_only=True, data_only=True)
-    if sheet not in wb.sheetnames:
-        return []
-    ws = wb[sheet]
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return []
-    headers = [str(v).strip() if v is not None else "" for v in rows[0]]
-    out: List[Dict[str, Any]] = []
-    for raw in rows[1:]:
-        row = {headers[i]: raw[i] for i in range(min(len(headers), len(raw))) if headers[i]}
-        if any(v not in (None, "") for v in row.values()):
-            out.append(row)
-    return out
+    try:
+        data: Dict[str, List[Dict[str, Any]]] = {}
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                data[sheet] = []
+                continue
+            headers = [str(v).strip() if v is not None else "" for v in rows[0]]
+            parsed: List[Dict[str, Any]] = []
+            for raw in rows[1:]:
+                row = {headers[i]: raw[i] for i in range(min(len(headers), len(raw))) if headers[i]}
+                if any(v not in (None, "") for v in row.values()):
+                    parsed.append(row)
+            data[sheet] = parsed
+        return data
+    finally:
+        wb.close()
+
+
+def ensure_excel_cache() -> Dict[str, List[Dict[str, Any]]]:
+    global EXCEL_CACHE
+    if EXCEL_CACHE is None:
+        EXCEL_CACHE = load_excel_cache(EXCEL_FILE)
+    return EXCEL_CACHE
+
+
+def read_excel_sheet(path: str, sheet: str) -> List[Dict[str, Any]]:
+    if path != EXCEL_FILE:
+        raise RuntimeError(f"Obsługiwany jest tylko skonfigurowany plik wejściowy: {EXCEL_FILE}")
+    return ensure_excel_cache().get(sheet, [])
 
 
 def find_element(app: Any, name: str, pf_class: str) -> Any:
@@ -192,19 +230,20 @@ def get_attr(obj: Any, names: Sequence[str], default: Any = None) -> Any:
 
 def get_float(obj: Any, names: Sequence[str], default: float = 0.0) -> float:
     val = get_attr(obj, names, default)
-    try:
-        return float(val)
-    except Exception:
-        return float(default)
+    return _as_float(val, default)
 
 
-def set_attr(obj: Any, names: Sequence[str], value: float) -> bool:
+def set_attr(obj: Any, names: Sequence[str], value: Any) -> bool:
     for name in names:
         try:
-            obj.SetAttribute(name, float(value))
+            obj.SetAttribute(name, value)
             return True
         except Exception:
-            continue
+            try:
+                obj.SetAttribute(name, float(value))
+                return True
+            except Exception:
+                continue
     return False
 
 
@@ -217,23 +256,70 @@ def run_loadflow(ldf: Any) -> None:
 def set_initial_model_from_excel(app: Any) -> None:
     """Ustawia obciążenia, generatory, PV i magazyny/statgeny z dane.xlsx."""
     for row in read_excel_sheet(EXCEL_FILE, "Loads"):
-        elm = find_element(app, str(row.get("name", "")).strip(), "ElmLod")
+        elm = find_element(app, str(_row_value(row, "name", "Name", default="")).strip(), "ElmLod")
         if elm is None:
             continue
-        set_attr(elm, ["plinir"], float(row.get("P1") or 0.0))
-        set_attr(elm, ["plinis"], float(row.get("P2") or 0.0))
-        set_attr(elm, ["plinit"], float(row.get("P3") or 0.0))
-        set_attr(elm, ["qlinir"], float(row.get("Q1") or 0.0))
-        set_attr(elm, ["qlinis"], float(row.get("Q2") or 0.0))
-        set_attr(elm, ["qlinit"], float(row.get("Q3") or 0.0))
+        set_attr(elm, ["plinir"], _as_float(_row_value(row, "P1"), 0.0))
+        set_attr(elm, ["plinis"], _as_float(_row_value(row, "P2"), 0.0))
+        set_attr(elm, ["plinit"], _as_float(_row_value(row, "P3"), 0.0))
+        set_attr(elm, ["qlinir"], _as_float(_row_value(row, "Q1"), 0.0))
+        set_attr(elm, ["qlinis"], _as_float(_row_value(row, "Q2"), 0.0))
+        set_attr(elm, ["qlinit"], _as_float(_row_value(row, "Q3"), 0.0))
 
     for sheet, cls in [("Generators", "ElmSym"), ("PV", "ElmPvsys"), ("StatGen", "ElmGenstat")]:
         for row in read_excel_sheet(EXCEL_FILE, sheet):
-            elm = find_element(app, str(row.get("name", "")).strip(), cls)
+            elm = find_element(app, str(_row_value(row, "name", "Name", default="")).strip(), cls)
             if elm is None:
                 continue
-            set_attr(elm, ["pgini"], float(row.get("P") or 0.0))
-            set_attr(elm, ["qgini"], float(row.get("Q") or 0.0))
+            set_attr(elm, ["pgini"], _as_float(_row_value(row, "P", "pgini"), 0.0))
+            set_attr(elm, ["qgini"], _as_float(_row_value(row, "Q", "qgini"), 0.0))
+
+
+def load_control_config() -> Dict[str, Any]:
+    cfg: Dict[str, Any] = {}
+    for row in read_excel_sheet(EXCEL_FILE, "ControlConfig"):
+        key = str(_row_value(row, "parameter", "Parameter", default="")).strip()
+        if not key:
+            continue
+        cfg[key] = _row_value(row, "value", "Value")
+    return cfg
+
+
+def apply_runtime_config_from_excel() -> None:
+    global CONTROL_CONFIG, CASE_TO_RUN, VOLTAGE_MIN_PU, VOLTAGE_MAX_PU, LOADING_MAX_PERCENT
+    global P_STORAGE_TOTAL_MAX_KW, P_STORAGE_PHASE_MAX_KW, S_STORAGE_TOTAL_KVA, S_STORAGE_PHASE_KVA, TRANSFORMER_EXPORT_POSITIVE
+    CONTROL_CONFIG = load_control_config()
+    CASE_TO_RUN = str(CONTROL_CONFIG.get("CASE_TO_RUN") or CASE_TO_RUN)
+    VOLTAGE_MIN_PU = _as_float(CONTROL_CONFIG.get("VOLTAGE_MIN_PU"), VOLTAGE_MIN_PU)
+    VOLTAGE_MAX_PU = _as_float(CONTROL_CONFIG.get("VOLTAGE_MAX_PU"), VOLTAGE_MAX_PU)
+    LOADING_MAX_PERCENT = _as_float(CONTROL_CONFIG.get("LOADING_MAX_PERCENT"), LOADING_MAX_PERCENT)
+    P_STORAGE_TOTAL_MAX_KW = _as_float(CONTROL_CONFIG.get("P_STORAGE_TOTAL_MAX_KW"), P_STORAGE_TOTAL_MAX_KW)
+    P_STORAGE_PHASE_MAX_KW = _as_float(CONTROL_CONFIG.get("P_STORAGE_PHASE_MAX_KW"), P_STORAGE_PHASE_MAX_KW)
+    S_STORAGE_TOTAL_KVA = _as_float(CONTROL_CONFIG.get("S_STORAGE_TOTAL_KVA"), S_STORAGE_TOTAL_KVA)
+    S_STORAGE_PHASE_KVA = _as_float(CONTROL_CONFIG.get("S_STORAGE_PHASE_KVA"), S_STORAGE_PHASE_KVA)
+    exp = CONTROL_CONFIG.get("TRANSFORMER_EXPORT_POSITIVE")
+    if exp is not None and str(exp).strip() != "":
+        TRANSFORMER_EXPORT_POSITIVE = bool(int(_as_float(exp, 1.0)))
+
+
+def load_storage_steps_from_excel() -> List[float]:
+    values: List[float] = []
+    for row in read_excel_sheet(EXCEL_FILE, "StorageSteps"):
+        p_rel = _row_value(row, "p_rel")
+        if p_rel is not None:
+            values.append(_as_float(p_rel, 0.0))
+            continue
+        percent = _row_value(row, "percent")
+        if percent is not None:
+            values.append(_as_float(percent, 0.0) / 100.0)
+    if not values:
+        values = [v / 100.0 for v in STORAGE_STEPS]
+        values.extend([-v for v in values if v > 0.0])
+    unique = sorted({max(-1.0, min(1.0, float(v))) for v in values})
+    if 0.0 not in unique:
+        unique.append(0.0)
+        unique.sort()
+    return unique
 
 
 def load_storage_candidates() -> List[Dict[str, str]]:
@@ -429,47 +515,47 @@ def qmax_available(p_pv_kw: float, s_inv_kva: float) -> float:
     return math.sqrt(max(0.0, s * s - p * p))
 
 
-def qu_curve(u_pu: float, qmax: float) -> float:
-    u = float(u_pu)
-    if u <= QU_U_MIN_FULL:
-        return -qmax
-    if u < QU_U_MIN_DEADBAND:
-        return -qmax * (QU_U_MIN_DEADBAND - u) / (QU_U_MIN_DEADBAND - QU_U_MIN_FULL)
-    if u <= QU_U_MAX_DEADBAND:
-        return 0.0
-    if u < QU_U_MAX_FULL:
-        return qmax * (u - QU_U_MAX_DEADBAND) / (QU_U_MAX_FULL - QU_U_MAX_DEADBAND)
-    return qmax
-
-
-def set_pv_q_zero(pv_rows: List[Dict[str, Any]]) -> None:
-    for row in pv_rows:
-        row["q_kvar"] = 0.0
-        set_attr(row["object"], ["qgini", "qsetp"], 0.0)
-
-
-def apply_local_qu(pv_rows: List[Dict[str, Any]]) -> None:
+def set_pv_mode(pv_rows: List[Dict[str, Any]], mode: str) -> None:
     for row in pv_rows:
         obj = row["object"]
-        phase = row["phase"]
-        row["u_pu"] = get_float(obj, [f"m:u:{PF_PHASE[phase]}", "m:u"], row.get("u_pu", 1.0))
-        row["p_kw"] = get_float(obj, ["pgini"], row.get("p_kw", 0.0))
-        row["s_inv_kva"] = get_float(obj, ["sgn", "sn", "snom"], row.get("s_inv_kva", abs(row["p_kw"])))
-        qmax = qmax_available(row["p_kw"], row["s_inv_kva"])
-        q = max(-qmax, min(qmax, qu_curve(row["u_pu"], qmax)))
-        row["q_kvar"] = q
-        set_attr(obj, ["qgini", "qsetp"], q)
+        set_attr(obj, ["av_mode"], mode)
 
 
 def zero_storage_rows() -> List[Dict[str, Any]]:
-    return [{"phase": ph, "step": 0, "p_storage_kw": 0.0, "q_storage_kvar": 0.0} for ph in PHASES]
+    return [{"phase": ph, "step": 0.0, "p_storage_kw": 0.0, "q_storage_kvar": None} for ph in PHASES]
+
+
+def nearest_storage_rel(value: float) -> float:
+    if not STORAGE_P_REL_STEPS:
+        raise RuntimeError("Brak zdefiniowanych kroków StorageSteps (p_rel).")
+    return min(STORAGE_P_REL_STEPS, key=lambda x: abs(x - value))
+
+
+def nearest_storage_index(value: float) -> int:
+    rel = nearest_storage_rel(value)
+    return STORAGE_P_REL_STEPS.index(rel)
+
+
+def shift_storage_index(index: int, delta: int) -> int:
+    return max(0, min(len(STORAGE_P_REL_STEPS) - 1, index + delta))
+
+
+def storage_power_from_rel(rel: float) -> float:
+    rel_q = nearest_storage_rel(max(-1.0, min(1.0, rel)))
+    return rel_q * P_STORAGE_PHASE_MAX_KW
+
+
+def quantize_storage_power(p_kw: float) -> float:
+    rel = max(-1.0, min(1.0, p_kw / max(P_STORAGE_PHASE_MAX_KW, EPS)))
+    return storage_power_from_rel(rel)
 
 
 def validate_storage(rows: List[Dict[str, Any]]) -> None:
     total_abs = 0.0
     for row in rows:
         p = float(row.get("p_storage_kw") or 0.0)
-        q = float(row.get("q_storage_kvar") or 0.0)
+        q_raw = row.get("q_storage_kvar")
+        q = 0.0 if q_raw is None else float(q_raw)
         if abs(p) > P_STORAGE_PHASE_MAX_KW + 1e-9:
             raise ValueError(f"Magazyn {row['phase']} przekracza P fazowe: {p} kW")
         if p * p + q * q > S_STORAGE_PHASE_KVA * S_STORAGE_PHASE_KVA + 1e-9:
@@ -498,28 +584,26 @@ def apply_storage(app: Any, candidates: List[Dict[str, str]], rows: List[Dict[st
         if not name:
             continue
         p = float(row.get("p_storage_kw") or 0.0)  # + ładowanie
-        q = float(row.get("q_storage_kvar") or 0.0)
+        q_raw = row.get("q_storage_kvar")
+        q = None if q_raw is None else float(q_raw)
         elm_lod = find_element(app, name, "ElmLod")
         if elm_lod is not None:
             set_attr(elm_lod, [PHASE_ATTR_P_LOAD[ph], "plini"], p)
-            set_attr(elm_lod, [PHASE_ATTR_Q_LOAD[ph], "qlini"], q)
+            if q is not None:
+                set_attr(elm_lod, [PHASE_ATTR_Q_LOAD[ph], "qlini"], q)
             continue
         elm_gen = find_element(app, name, "ElmGenstat") or find_element(app, name, "ElmSym") or find_element(app, name, "ElmPvsys")
         if elm_gen is not None:
             set_attr(elm_gen, ["pgini"], -p)
-            set_attr(elm_gen, ["qgini"], -q)
+            if q is not None:
+                set_attr(elm_gen, ["qgini"], -q)
 
 
-def export_step(p_export_kw: float) -> int:
-    if p_export_kw <= P_STORAGE_START_KW:
-        return 0
-    if p_export_kw <= 0.25 * P_STORAGE_PHASE_MAX_KW:
-        return 1
-    if p_export_kw <= 0.50 * P_STORAGE_PHASE_MAX_KW:
-        return 2
-    if p_export_kw <= 0.75 * P_STORAGE_PHASE_MAX_KW:
-        return 3
-    return 4
+def export_step_rel(p_export_kw: float) -> float:
+    if abs(p_export_kw) <= P_STORAGE_START_KW:
+        return 0.0
+    rel = p_export_kw / max(P_STORAGE_PHASE_MAX_KW, EPS)
+    return nearest_storage_rel(max(-1.0, min(1.0, rel)))
 
 
 def transformer_storage_rule(tr_row: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -535,15 +619,21 @@ def transformer_storage_rule(tr_row: Dict[str, Any]) -> List[Dict[str, Any]]:
     for ph, i in zip(PHASES, i_vals):
         p_tr = float(tr_row[f"P_tr_{ph}_kW"])
         p_export = p_tr if TRANSFORMER_EXPORT_POSITIVE else -p_tr
-        step = export_step(p_export)
+        step_rel = export_step_rel(p_export)
+        step_idx = nearest_storage_index(step_rel)
         d_i = (i - i_avg) / i_avg if i_avg > EPS else 0.0
+        step_sign = 0
+        if step_rel > 0:
+            step_sign = 1
+        elif step_rel < 0:
+            step_sign = -1
         if d_i > TR_I_UNBALANCE_THRESHOLD_2:
-            step += 2
+            step_idx = shift_storage_index(step_idx, 2 * step_sign)
         elif d_i > TR_I_UNBALANCE_THRESHOLD_1:
-            step += 1
-        step = int(max(-4, min(4, step)))
-        p = step / 4.0 * P_STORAGE_PHASE_MAX_KW
-        rows.append({"phase": ph, "step": step, "p_storage_kw": p, "q_storage_kvar": 0.0})
+            step_idx = shift_storage_index(step_idx, 1 * step_sign)
+        step_rel = STORAGE_P_REL_STEPS[step_idx]
+        p = storage_power_from_rel(step_rel)
+        rows.append({"phase": ph, "step": step_rel, "p_storage_kw": p, "q_storage_kvar": None})
     validate_storage(rows)
     return rows
 
@@ -572,23 +662,36 @@ def node_voltage_row(raw: Dict[str, List[Dict[str, Any]]], node: str) -> Dict[st
 def end_node_storage_rule(v_row: Dict[str, Any]) -> List[Dict[str, Any]]:
     u_vals = [float(v_row.get(f"U_{ph}_pu") or 1.0) for ph in PHASES]
     u_avg = sum(u_vals) / 3.0
+    u_low_start = 2.0 - END_U_START_PU
+    u_low_25 = 2.0 - END_U_STEP_25_PU
+    u_low_50 = 2.0 - END_U_STEP_50_PU
+    u_low_75 = 2.0 - END_U_STEP_75_PU
     rows: List[Dict[str, Any]] = []
     for ph, u in zip(PHASES, u_vals):
-        if u <= END_U_START_PU:
-            step = 0
-        elif u <= END_U_STEP_25_PU:
-            step = 1
-        elif u <= END_U_STEP_50_PU:
-            step = 2
-        elif u <= END_U_STEP_75_PU:
-            step = 3
+        if u >= END_U_STEP_75_PU:
+            step_rel = 1.0
+        elif u >= END_U_STEP_50_PU:
+            step_rel = 0.75
+        elif u >= END_U_STEP_25_PU:
+            step_rel = 0.50
+        elif u >= END_U_START_PU:
+            step_rel = 0.25
+        elif u <= u_low_75:
+            step_rel = -1.0
+        elif u <= u_low_50:
+            step_rel = -0.75
+        elif u <= u_low_25:
+            step_rel = -0.50
+        elif u <= u_low_start:
+            step_rel = -0.25
         else:
-            step = 4
-        if u - u_avg > END_U_UNBALANCE_BOOST_PU:
-            step += 1
-        step = int(max(0, min(4, step)))
-        p = step / 4.0 * P_STORAGE_PHASE_MAX_KW
-        rows.append({"phase": ph, "step": step, "p_storage_kw": p, "q_storage_kvar": 0.0})
+            step_rel = 0.0
+        idx = nearest_storage_index(step_rel)
+        if abs(u - u_avg) > END_U_UNBALANCE_BOOST_PU and abs(step_rel) > EPS:
+            idx = shift_storage_index(idx, 1 if step_rel > 0 else -1)
+        step_rel = STORAGE_P_REL_STEPS[idx]
+        p = storage_power_from_rel(step_rel)
+        rows.append({"phase": ph, "step": step_rel, "p_storage_kw": p, "q_storage_kvar": None})
     validate_storage(rows)
     return rows
 
@@ -601,10 +704,10 @@ def require_pso_dependencies() -> None:
 # PRZYPADKI BADAWCZE
 # =============================================================================
 
-def reset_model_for_case(app: Any, ldf: Any, candidates: List[Dict[str, str]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def reset_model_for_case(app: Any, ldf: Any, candidates: List[Dict[str, str]], pv_mode: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     set_initial_model_from_excel(app)
     pv_rows = collect_pv_objects(app)
-    set_pv_q_zero(pv_rows)
+    set_pv_mode(pv_rows, pv_mode)
     storage_rows = zero_storage_rows()
     apply_storage(app, candidates, storage_rows)
     run_loadflow(ldf)
@@ -612,15 +715,13 @@ def reset_model_for_case(app: Any, ldf: Any, candidates: List[Dict[str, str]]) -
 
 
 def run_base_no_control(app: Any, ldf: Any, tr: Any, candidates: List[Dict[str, str]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    pv_rows, storage_rows = reset_model_for_case(app, ldf, candidates)
+    pv_rows, storage_rows = reset_model_for_case(app, ldf, candidates, pv_mode="constq")
     raw = collect_results(app, tr, pv_rows, storage_rows)
     return raw, calculate_indicators(raw)
 
 
 def run_local_qu_storage_tr(app: Any, ldf: Any, tr: Any, candidates: List[Dict[str, str]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    pv_rows, _ = reset_model_for_case(app, ldf, candidates)
-    apply_local_qu(pv_rows)
-    run_loadflow(ldf)
+    pv_rows, _ = reset_model_for_case(app, ldf, candidates, pv_mode="qvchar")
     raw_before_storage = collect_results(app, tr, pv_rows, zero_storage_rows())
     storage_rows = transformer_storage_rule(raw_before_storage["transformer_phase_results"][0])
     apply_storage(app, candidates, storage_rows)
@@ -631,9 +732,7 @@ def run_local_qu_storage_tr(app: Any, ldf: Any, tr: Any, candidates: List[Dict[s
 
 def run_local_qu_storage_end(app: Any, ldf: Any, tr: Any, candidates: List[Dict[str, str]], base_raw: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     critical_node = select_critical_node(base_raw)
-    pv_rows, _ = reset_model_for_case(app, ldf, candidates)
-    apply_local_qu(pv_rows)
-    run_loadflow(ldf)
+    pv_rows, _ = reset_model_for_case(app, ldf, candidates, pv_mode="qvchar")
     raw_before_storage = collect_results(app, tr, pv_rows, zero_storage_rows())
     storage_rows = end_node_storage_rule(node_voltage_row(raw_before_storage, critical_node))
     apply_storage(app, candidates, storage_rows, node_name=critical_node)
@@ -655,8 +754,8 @@ def pso_variables(pv_rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], 
         ub.append(qmax)
     for ph in PHASES:
         variables.append({"kind": "storage_p", "phase": ph})
-        lb.append(-P_STORAGE_PHASE_MAX_KW)
-        ub.append(P_STORAGE_PHASE_MAX_KW)
+        lb.append(min(STORAGE_P_REL_STEPS) * P_STORAGE_PHASE_MAX_KW)
+        ub.append(max(STORAGE_P_REL_STEPS) * P_STORAGE_PHASE_MAX_KW)
     return variables, np.array(lb, dtype=float), np.array(ub, dtype=float)
 
 
@@ -670,7 +769,7 @@ def apply_pso_vector(app: Any, candidates: List[Dict[str, str]], x: np.ndarray, 
             set_attr(row["object"], ["qgini", "qsetp"], q)
         else:
             idx = PHASES.index(var["phase"])
-            p = max(-P_STORAGE_PHASE_MAX_KW, min(P_STORAGE_PHASE_MAX_KW, float(value)))
+            p = quantize_storage_power(max(-P_STORAGE_PHASE_MAX_KW, min(P_STORAGE_PHASE_MAX_KW, float(value))))
             storage_rows[idx]["p_storage_kw"] = p
     apply_storage(app, candidates, storage_rows)
     return storage_rows
@@ -688,7 +787,7 @@ def run_pso_global(app: Any, ldf: Any, tr: Any, candidates: List[Dict[str, str]]
     require_pso_dependencies()
     random.seed(PSO_RANDOM_SEED)
     np.random.seed(PSO_RANDOM_SEED)
-    pv_rows, _ = reset_model_for_case(app, ldf, candidates)
+    pv_rows, _ = reset_model_for_case(app, ldf, candidates, pv_mode="constq")
     variables, lb, ub = pso_variables(pv_rows)
 
     def obj(x: np.ndarray) -> float:
@@ -823,6 +922,10 @@ def export_to_excel(all_raw: Dict[str, Dict[str, Any]], all_indicators: Dict[str
 # =============================================================================
 
 def run_study() -> None:
+    ensure_excel_cache()
+    apply_runtime_config_from_excel()
+    global STORAGE_P_REL_STEPS
+    STORAGE_P_REL_STEPS = load_storage_steps_from_excel()
     app, ldf = connect_powerfactory()
     tr = get_transformer(app)
     candidates = load_storage_candidates()

@@ -72,8 +72,8 @@ Wariant bazowy bez aktywnego sterowania.
 Założenia:
 
 - PV generuje zadaną moc czynną,
-- falowniki PV pracują z cosφ = 1,
-- Q_PV = 0,
+- falowniki PV mają `av_mode = constq`,
+- Q_PV jest brane z danych wejściowych (Excel),
 - magazyn nie pracuje,
 - P_storage_L1 = P_storage_L2 = P_storage_L3 = 0.
 
@@ -88,6 +88,8 @@ PSO ma pełną informację o stanie sieci i dobiera:
 - Q falowników PV,
 - P magazynu w fazach L1, L2, L3.
 
+W tym wariancie wszystkie PV mają `av_mode = constq`, a PSO ustawia Q bezpośrednio.
+
 PSO nie może dobierać:
 
 - mocy znamionowej magazynu,
@@ -101,7 +103,7 @@ PSO ma korzystać z tych samych zasobów technicznych co metody lokalne. Różni
 
 Wariant lokalny z magazynem przy transformatorze.
 
-Falowniki PV pracują według lokalnej charakterystyki Q(U).
+Falowniki PV pracują według lokalnej charakterystyki Q(U) z PowerFactory (`av_mode = qvchar`).
 
 Magazyn znajduje się przy transformatorze po stronie nn.
 
@@ -135,7 +137,7 @@ Logika:
 
 Wariant lokalny z magazynem w głębi sieci.
 
-Falowniki PV pracują według tej samej charakterystyki Q(U) co w wariancie przy transformatorze.
+Falowniki PV pracują według tej samej charakterystyki Q(U) co w wariancie przy transformatorze (`av_mode = qvchar`).
 
 Magazyn znajduje się w węźle krytycznym, wybranym na podstawie wyników `base_no_control`.
 
@@ -155,9 +157,11 @@ Magazyn mierzy lokalne napięcia fazowe i działa skokowo:
 
 ## 4. Charakterystyka Q(U) falowników PV
 
-W wariantach lokalnych falowniki PV mają pracować według jednej wspólnej charakterystyki Q(U) z martwą strefą.
+W wariantach lokalnych falowniki PV mają pracować według jednej wspólnej charakterystyki Q(U) z martwą strefą, ustawionej bezpośrednio w PowerFactory.
 
-Proponowana logika:
+Skrypt Python nie liczy ręcznie Q(U): przełącza tylko `av_mode` PV (`constq` lub `qvchar`) zależnie od przypadku.
+
+Proponowana logika krzywej:
 
 ```text
 U <= 0.95 pu:
