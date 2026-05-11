@@ -27,6 +27,14 @@ def _f(v, default=0.0) -> float:
         return float(default)
 
 
+def _to_bool(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _validate_phase_columns(rows: List[Dict], row_name: str, warnings: List[str]) -> None:
     for idx, r in enumerate(rows):
         for ph in ("L1", "L2", "L3"):
@@ -248,7 +256,7 @@ def main() -> None:
     params = _merge_params(input_data)
     cases = _resolve_cases(input_data, args.case)
 
-    force_demo_cfg = str(input_data.get("study_config", {}).get("demo_mode", "false")).strip().lower() in {"1", "true", "yes"}
+    force_demo_cfg = _to_bool(input_data.get("study_config", {}).get("demo_mode", False))
     pf = PowerFactoryInterface(use_demo=args.demo or force_demo_cfg)
     pf.set_data(input_data.get("object_map", []), input_data.get("loads", []), input_data.get("pv_units", []), input_data.get("storage", []))
 

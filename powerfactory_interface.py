@@ -95,7 +95,7 @@ class PowerFactoryInterface:
 
         total_load = sum(load_by_phase.values())
         total_pv = sum(pv_by_phase.values())
-        stress = 0.0 if total_load == 0 else (total_pv - total_load) / max(total_load, 1.0)
+        stress = (total_pv - total_load) / total_load if total_load > 0 else 0.0
 
         node_voltages: List[Dict] = []
         for idx, node in enumerate(nodes):
