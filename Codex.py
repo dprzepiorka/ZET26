@@ -312,6 +312,8 @@ def load_storage_steps_from_excel() -> List[float]:
         if percent is not None:
             values.append(_as_float(percent, 0.0) / 100.0)
     if not values:
+        # Fallback tylko gdy w pliku brak użytecznych kroków; zachowuje prosty tryb zgodny
+        # z historyczną konfiguracją STORAGE_STEPS.
         values = [v / 100.0 for v in STORAGE_STEPS]
         values.extend([-v for v in values if v > 0.0])
     unique = sorted({max(-1.0, min(1.0, float(v))) for v in values})
@@ -657,6 +659,7 @@ def node_voltage_row(raw: Dict[str, List[Dict[str, Any]]], node: str) -> Dict[st
 def end_node_storage_rule(v_row: Dict[str, Any]) -> List[Dict[str, Any]]:
     u_vals = [float(v_row.get(f"U_{ph}_pu") or 1.0) for ph in PHASES]
     u_avg = sum(u_vals) / 3.0
+    # Progi niedonapięciowe są lustrzanym odbiciem progów nadnapięciowych wokół 1.0 pu.
     u_low_start = 2.0 * NOMINAL_VOLTAGE_PU - END_U_START_PU
     u_low_25 = 2.0 * NOMINAL_VOLTAGE_PU - END_U_STEP_25_PU
     u_low_50 = 2.0 * NOMINAL_VOLTAGE_PU - END_U_STEP_50_PU
