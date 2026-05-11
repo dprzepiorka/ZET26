@@ -1,0 +1,24 @@
+storage:
+  s_total_kva: 60.0
+  p_total_max_kw: 60.0
+  s_phase_kva: 20.0
+  p_phase_max_kw: 20.0
+  steps_percent: [0, 25, 50, 75, 100]
+  p_start_kw: 1.0
+
+transformer_rule:
+  current_unbalance_threshold_1: 0.05
+  current_unbalance_threshold_2: 0.10
+
+end_node_rule:
+  u_start_pu: 1.03
+  u_step_25_pu: 1.04
+  u_step_50_pu: 1.05
+  u_step_75_pu: 1.06
+  u_unbalance_boost_pu: 0.005
+
+qu_curve:
+  u_min_full: 0.95
+  u_min_deadband: 0.97
+  u_max_deadband: 1.03
+  u_max_full: 1.08

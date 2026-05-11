@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+results/
+failed_evals_pso.csv
+pso_*.npz
+pso_*.txt
+pso_*.log

@@ -1,0 +1,24 @@
+cases:
+  base_no_control:
+    pv_control: none
+    storage_control: none
+    storage_location: none
+    pso: false
+
+  pso_global:
+    pv_control: pso_q
+    storage_control: pso_p
+    storage_location: transformer
+    pso: true
+
+  local_qu_storage_tr:
+    pv_control: local_qu
+    storage_control: step_transformer_current_power
+    storage_location: transformer
+    pso: false
+
+  local_qu_storage_end:
+    pv_control: local_qu
+    storage_control: step_local_voltage
+    storage_location: critical_node
+    pso: false

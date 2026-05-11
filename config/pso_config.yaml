@@ -1,0 +1,15 @@
+pso:
+  particles: 18
+  iterations: 30
+  inertia: 0.7
+  c1: 1.4
+  c2: 1.6
+  seed: 42
+  autosave_every_iters: 0
+
+objective_weights:
+  wV: 0.20
+  wVU: 0.30
+  wIU: 0.25
+  wEXP: 0.20
+  wPEN: 0.05
