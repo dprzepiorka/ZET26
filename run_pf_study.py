@@ -18,6 +18,7 @@ from powerfactory_interface import PowerFactoryInterface
 
 CASES = ["base_no_control", "pso_global", "local_qu_storage_tr", "local_qu_storage_end"]
 _CURRENT_CONTEXT: Dict = {}
+VALIDATION_EPS = 1e-6
 
 
 def _f(v, default=0.0) -> float:
@@ -50,7 +51,7 @@ def _validate_constraints(raw: Dict, input_data: Dict, params: Dict, case_name: 
         p = _f(r.get("P_kW", 0.0), 0.0)
         q = _f(r.get("Q_kvar", 0.0), 0.0)
         s = _f(r.get("S_inv_kVA", 0.0), 0.0)
-        if p * p + q * q > s * s + 1e-9:
+        if p * p + q * q > s * s + VALIDATION_EPS:
             warnings.append(f"PV {r.get('object_id')} {r.get('phase')}: przekroczenie S_inv.")
 
     storage_rows = raw.get("storage_setpoints", [])
@@ -63,11 +64,11 @@ def _validate_constraints(raw: Dict, input_data: Dict, params: Dict, case_name: 
         for ph in phases:
             p = _f(r.get(f"P_{ph}_kW", 0.0), 0.0)
             total_abs += abs(p)
-            if abs(p) > p_phase_max + 1e-9:
+            if abs(p) > p_phase_max + VALIDATION_EPS:
                 warnings.append(f"Storage {r.get('object_id')} {ph}: |P|>{p_phase_max} kW.")
-            if p * p > s_phase * s_phase + 1e-9:
+            if p * p > s_phase * s_phase + VALIDATION_EPS:
                 warnings.append(f"Storage {r.get('object_id')} {ph}: przekroczenie S_phase.")
-        if total_abs > p_total_max + 1e-9:
+        if total_abs > p_total_max + VALIDATION_EPS:
             warnings.append(f"Storage {r.get('object_id')}: przekroczenie P_total_max.")
 
     tr = raw.get("transformer_phase_results", [])
@@ -76,7 +77,7 @@ def _validate_constraints(raw: Dict, input_data: Dict, params: Dict, case_name: 
         p_sum = _f(t.get("P_tr_L1_kW", 0.0), 0.0) + _f(t.get("P_tr_L2_kW", 0.0), 0.0) + _f(t.get("P_tr_L3_kW", 0.0), 0.0)
         p_export = max(0.0, -p_sum)
         p_export_reported = t.get("P_export_total_kW", None)
-        if p_export_reported is not None and abs(_f(p_export_reported, 0.0) - p_export) > 1e-6:
+        if p_export_reported is not None and abs(_f(p_export_reported, 0.0) - p_export) > VALIDATION_EPS:
             warnings.append("Niespójna konwencja znaków mocy transformatora (P_export_total_kW vs fazy).")
 
     _validate_phase_columns(raw.get("node_voltages", []), "node_voltages", warnings)

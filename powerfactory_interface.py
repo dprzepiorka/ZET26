@@ -169,6 +169,6 @@ class PowerFactoryInterface:
     @staticmethod
     def current_unbalance_percent(i_l1: float, i_l2: float, i_l3: float) -> float:
         i_avg = (i_l1 + i_l2 + i_l3) / 3.0
-        if abs(i_avg) < 1e-9:
+        if abs(i_avg) < 1e-3:
             return 0.0
         return max(abs(i_l1 - i_avg), abs(i_l2 - i_avg), abs(i_l3 - i_avg)) / i_avg * 100.0
