@@ -179,7 +179,7 @@ def run_pso_optimization(case_data, pf_objects, params) -> Dict[str, Dict[str, f
 
     def norm(metric_name: str, val: float) -> float:
         base_val = float(base_ind.get(metric_name, 0.0))
-        if base_val == 0:
+        if abs(base_val) < 1e-9:
             return val
         return val / base_val
 
