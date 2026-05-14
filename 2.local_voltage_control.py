@@ -28,7 +28,7 @@ LOG_FILE = r"results\local_voltage_control.log"
 
 TRANSFORMER_NAME = ""
 TRANSFORMER_CLASS = "ElmTr2"
-TRANSFORMER_LV_SIDE = "bushv"
+TRANSFORMER_LV_SIDE = "buslv"
 
 TRANSFORMER_EXPORT_POSITIVE = True
 

@@ -33,7 +33,7 @@ LOG_FILE = r"results\pso_global_critical.log"
 
 TRANSFORMER_NAME = ""
 TRANSFORMER_CLASS = "ElmTr2"
-TRANSFORMER_LV_SIDE = "bushv"
+TRANSFORMER_LV_SIDE = "buslv"
 
 # Jeśli True: dodatnie P_tr traktowane jest jako eksport.
 # Jeśli False: ujemne P_tr traktowane jest jako eksport.
