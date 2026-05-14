@@ -1,0 +1,14 @@
+=== PSO GLOBAL CRITICAL LOG START ===
+[2026-05-14 11:20:08] Start pso_global_critical.py
+[2026-05-14 11:20:08] Wczytano Excel: input_data.xlsx
+[2026-05-14 11:20:08] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-14 11:20:08] Ustawianie modelu z Excela...
+[2026-05-14 11:20:09] PV do sterowania Q: 165
+[2026-05-14 11:20:09] Magazyn critical: node=101
+[2026-05-14 11:20:09] Uruchamiam PSO: particles=20, iter=10, dim=168
+[2026-05-14 11:20:10] [WARN] Niezbieżny loadflow dla particle eval #5, rc=1
+[2026-05-14 11:20:10] [WARN] Niezbieżny loadflow dla particle eval #12, rc=1
+[2026-05-14 11:20:11] [WARN] Niezbieżny loadflow dla particle eval #14, rc=1
+[2026-05-14 11:20:11] [WARN] Niezbieżny loadflow dla particle eval #20, rc=1
+[2026-05-14 11:20:34] Zakończono. J_best=0.262513, Umax=1.0532 pu, Umin=0.9025 pu, P_export=5.78 kW
+[2026-05-14 11:20:34] Zapisano wyniki do: results\results_pso_global_critical.xlsx

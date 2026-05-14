@@ -1,0 +1,10 @@
+=== PSO GLOBAL TRANSFORMER LOG START ===
+[2026-05-14 11:27:58] Start pso_global_transformer.py
+[2026-05-14 11:27:58] Wczytano Excel: input_data.xlsx
+[2026-05-14 11:27:58] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-14 11:27:58] Ustawianie modelu z Excela...
+[2026-05-14 11:27:59] PV do sterowania Q: 165
+[2026-05-14 11:27:59] Magazyn transformer: node=2
+[2026-05-14 11:27:59] Uruchamiam PSO: particles=20, iter=10, dim=168
+[2026-05-14 11:28:25] Zakończono. J_best=0.390548, P_export=11.47 kW, I_neutral=2.25 A, Umax=1.1272 pu, Umin=1.0318 pu
+[2026-05-14 11:28:25] Zapisano wyniki do: results\results_pso_global_transformer.xlsx
