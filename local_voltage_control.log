@@ -1,0 +1,30 @@
+=== LOCAL VOLTAGE CONTROL LOG START ===
+[2026-05-14 08:59:45] Start local_voltage_control.py
+[2026-05-14 08:59:45] Wczytano Excel: input_data.xlsx
+[2026-05-14 08:59:45] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, Vars
+[2026-05-14 08:59:45] Wczytano kroki magazynu z Excela: [(-10, -1.0), (-9, -0.9), (-8, -0.8), (-7, -0.7), (-6, -0.6), (-5, -0.5), (-4, -0.4), (-3, -0.3), (-2, -0.2), (-1, -0.1), (0, 0.0), (1, 0.1), (2, 0.2), (3, 0.3), (4, 0.4), (5, 0.5), (6, 0.6), (7, 0.7), (8, 0.8), (9, 0.9), (10, 1.0)]
+[2026-05-14 08:59:45] Ustawianie modelu z Excela...
+[2026-05-14 08:59:46] Przełączono PV na qvchar: 165 szt.
+[2026-05-14 08:59:46] Uruchamiam pierwszy rozpływ kontrolny...
+[2026-05-14 08:59:46] --- Iteracja lokalnej regulacji 1 ---
+[2026-05-14 08:59:46] Iter 1, L1: wybrano step=5, Ppu=0.5, P=10.00 kW, U_after=1.001981270263472
+[2026-05-14 08:59:47] Iter 1, L2: wybrano step=2, Ppu=0.2, P=4.00 kW, U_after=0.9947799106142838
+[2026-05-14 08:59:47] Iter 1, L3: wybrano step=6, Ppu=0.6, P=12.00 kW, U_after=0.9977136051121871
+[2026-05-14 08:59:47] --- Iteracja lokalnej regulacji 2 ---
+[2026-05-14 08:59:48] Iter 2, L1: wybrano step=5, Ppu=0.5, P=10.00 kW, U_after=0.9872162950186648
+[2026-05-14 08:59:48] Iter 2, L2: wybrano step=1, Ppu=0.1, P=2.00 kW, U_after=0.9971184819658928
+[2026-05-14 08:59:48] Iter 2, L3: wybrano step=6, Ppu=0.6, P=12.00 kW, U_after=1.0006213179853405
+[2026-05-14 08:59:48] --- Iteracja lokalnej regulacji 3 ---
+[2026-05-14 08:59:49] Iter 3, L1: wybrano step=5, Ppu=0.5, P=10.00 kW, U_after=0.9881054119439783
+[2026-05-14 08:59:49] Iter 3, L2: wybrano step=1, Ppu=0.1, P=2.00 kW, U_after=0.9971184819658928
+[2026-05-14 08:59:49] Iter 3, L3: wybrano step=6, Ppu=0.6, P=12.00 kW, U_after=1.0006213179853405
+[2026-05-14 08:59:49] --- Iteracja lokalnej regulacji 4 ---
+[2026-05-14 08:59:49] Iter 4, L1: wybrano step=5, Ppu=0.5, P=10.00 kW, U_after=0.9881054119439783
+[2026-05-14 08:59:50] Iter 4, L2: wybrano step=1, Ppu=0.1, P=2.00 kW, U_after=0.9971184819658928
+[2026-05-14 08:59:50] Iter 4, L3: wybrano step=6, Ppu=0.6, P=12.00 kW, U_after=1.0006213179853405
+[2026-05-14 08:59:50] --- Iteracja lokalnej regulacji 5 ---
+[2026-05-14 08:59:50] Iter 5, L1: wybrano step=5, Ppu=0.5, P=10.00 kW, U_after=0.9881054119439783
+[2026-05-14 08:59:50] Iter 5, L2: wybrano step=1, Ppu=0.1, P=2.00 kW, U_after=0.9971184819658928
+[2026-05-14 08:59:51] Iter 5, L3: wybrano step=6, Ppu=0.6, P=12.00 kW, U_after=1.0006213179853405
+[2026-05-14 08:59:52] Zakończono. Umax=1.0609 pu, Umin=0.9877 pu, P_storage_total=24.00 kW, eksport=0.00 kW
+[2026-05-14 08:59:52] Zapisano wyniki do: results\results_local_voltage_control.xlsx

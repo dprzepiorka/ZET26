@@ -1,0 +1,38 @@
+=== LOCAL TRANSFORMER FLOW CONTROL LOG START ===
+[2026-05-14 10:21:53] Start local_transformer_flow_control.py
+[2026-05-14 10:21:53] Wczytano Excel: input_data.xlsx
+[2026-05-14 10:21:53] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-14 10:21:54] Wczytano kroki StorageTransformerControl: [(-10, -1.0), (-9, -0.9), (-8, -0.8), (-7, -0.7), (-6, -0.6), (-5, -0.5), (-4, -0.4), (-3, -0.3), (-2, -0.2), (-1, -0.1), (0, 0.0), (1, 0.1), (2, 0.2), (3, 0.3), (4, 0.4), (5, 0.5), (6, 0.6), (7, 0.7), (8, 0.8), (9, 0.9), (10, 1.0)]
+[2026-05-14 10:21:54] Odczyt parametrów transformatora ze strony: buslv
+[2026-05-14 10:21:54] Ustawianie modelu z Excela...
+[2026-05-14 10:21:54] Przełączono PV na qvchar: 165 szt.
+[2026-05-14 10:21:54] Uruchamiam pierwszy rozpływ kontrolny...
+[2026-05-14 10:21:54] --- Iteracja transformatorowej regulacji lokalnej 1 ---
+[2026-05-14 10:21:55] Iter 1, L1, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:55] Iter 1, L2, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:56] Iter 1, L3, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:57] Asymmetry pass accepted in iteration 1: I_unbalance 14.18% -> 8.11%
+[2026-05-14 10:21:57] Asymmetry pass accepted in iteration 1: I_unbalance 8.11% -> 1.83%
+[2026-05-14 10:21:58] Iteracja 1: P_export=(0.00, 0.00, 0.00) kW, I_unbalance=1.83%, P_storage=(50.00, 40.00, 50.00) kW
+[2026-05-14 10:21:58] --- Iteracja transformatorowej regulacji lokalnej 2 ---
+[2026-05-14 10:21:58] Iter 2, L1, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:58] Iter 2, L2, export stage: step=8, Ppu=0.8, P=40.00 kW, P_export_after=0.0
+[2026-05-14 10:21:58] Iter 2, L3, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:58] Iteracja 2: P_export=(0.00, 0.00, 0.00) kW, I_unbalance=1.83%, P_storage=(50.00, 40.00, 50.00) kW
+[2026-05-14 10:21:58] --- Iteracja transformatorowej regulacji lokalnej 3 ---
+[2026-05-14 10:21:58] Iter 3, L1, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:58] Iter 3, L2, export stage: step=8, Ppu=0.8, P=40.00 kW, P_export_after=0.0
+[2026-05-14 10:21:58] Iter 3, L3, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:59] Iteracja 3: P_export=(0.00, 0.00, 0.00) kW, I_unbalance=1.83%, P_storage=(50.00, 40.00, 50.00) kW
+[2026-05-14 10:21:59] --- Iteracja transformatorowej regulacji lokalnej 4 ---
+[2026-05-14 10:21:59] Iter 4, L1, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:21:59] Iter 4, L2, export stage: step=8, Ppu=0.8, P=40.00 kW, P_export_after=0.0
+[2026-05-14 10:21:59] Iter 4, L3, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:22:00] Iteracja 4: P_export=(0.00, 0.00, 0.00) kW, I_unbalance=1.83%, P_storage=(50.00, 40.00, 50.00) kW
+[2026-05-14 10:22:00] --- Iteracja transformatorowej regulacji lokalnej 5 ---
+[2026-05-14 10:22:00] Iter 5, L1, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:22:00] Iter 5, L2, export stage: step=8, Ppu=0.8, P=40.00 kW, P_export_after=0.0
+[2026-05-14 10:22:00] Iter 5, L3, export stage: step=10, Ppu=1.0, P=50.00 kW, P_export_after=0.0
+[2026-05-14 10:22:00] Iteracja 5: P_export=(0.00, 0.00, 0.00) kW, I_unbalance=1.83%, P_storage=(50.00, 40.00, 50.00) kW
+[2026-05-14 10:22:02] Zakończono. Umax=1.0513 pu, Umin=1.0022 pu, P_storage_total=140.00 kW, eksport=0.00 kW
+[2026-05-14 10:22:02] Zapisano wyniki do: results\results_local_transformer_flow_control.xlsx

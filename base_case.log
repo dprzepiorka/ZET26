@@ -1,0 +1,14 @@
+=== BASE CASE LOG START ===
+[2026-05-14 09:54:55] Start base_case.py
+[2026-05-14 09:54:55] Wczytano Excel: input_data.xlsx
+[2026-05-14 09:54:55] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-14 09:54:55] Ustawianie modelu bazowego z Excela...
+[2026-05-14 09:54:55] [WARN] Loads: nie znaleziono ElmLod 'Atribute'
+[2026-05-14 09:54:55] [WARN] Loads: nie znaleziono ElmLod 'None'
+[2026-05-14 09:54:55] [WARN] Loads: nie znaleziono ElmLod 'None'
+[2026-05-14 09:54:55] [WARN] PV: nie znaleziono ElmPvsys 'Atribute'
+[2026-05-14 09:54:55] [WARN] PV: nie znaleziono ElmPvsys 'None'
+[2026-05-14 09:54:55] [WARN] StatGen: nie znaleziono ElmGenstat 'Atribute'
+[2026-05-14 09:54:56] Uruchamiam bazowy rozpływ mocy...
+[2026-05-14 09:54:56] Zakończono. Umax=1.1343 pu, Umin=1.0425 pu, eksport=0.00 kW, Fcelu_1(1.05)=0.041615, Fcelu_2=0.0000 A, Fcelu_3=0.018552
+[2026-05-14 09:54:56] Zapisano wyniki do: results\results_base_case.xlsx
