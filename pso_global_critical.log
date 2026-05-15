@@ -1,14 +1,11 @@
 === PSO GLOBAL CRITICAL LOG START ===
-[2026-05-14 11:20:08] Start pso_global_critical.py
-[2026-05-14 11:20:08] Wczytano Excel: input_data.xlsx
-[2026-05-14 11:20:08] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
-[2026-05-14 11:20:08] Ustawianie modelu z Excela...
-[2026-05-14 11:20:09] PV do sterowania Q: 165
-[2026-05-14 11:20:09] Magazyn critical: node=101
-[2026-05-14 11:20:09] Uruchamiam PSO: particles=20, iter=10, dim=168
-[2026-05-14 11:20:10] [WARN] Niezbieżny loadflow dla particle eval #5, rc=1
-[2026-05-14 11:20:10] [WARN] Niezbieżny loadflow dla particle eval #12, rc=1
-[2026-05-14 11:20:11] [WARN] Niezbieżny loadflow dla particle eval #14, rc=1
-[2026-05-14 11:20:11] [WARN] Niezbieżny loadflow dla particle eval #20, rc=1
-[2026-05-14 11:20:34] Zakończono. J_best=0.262513, Umax=1.0532 pu, Umin=0.9025 pu, P_export=5.78 kW
-[2026-05-14 11:20:34] Zapisano wyniki do: results\results_pso_global_critical.xlsx
+[2026-05-15 11:26:20] Start pso_global_critical.py
+[2026-05-15 11:26:21] Wczytano Excel: input_data.xlsx
+[2026-05-15 11:26:21] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-15 11:26:21] Config: Vmin=0.9, Vtarget=1.0, Vmax=1.1, Uobj=[0.95, 1.05], PSO particles=3, iter=3, seed=42
+[2026-05-15 11:26:21] Ustawianie modelu z Excela...
+[2026-05-15 11:26:21] PV do sterowania Q: 165
+[2026-05-15 11:26:21] Magazyn critical: node=101
+[2026-05-15 11:26:21] Uruchamiam PSO: particles=3, iter=3, dim=168
+[2026-05-15 11:26:23] Zakończono. J_best=0.517523, Umax=1.1890 pu, Umin=1.0472 pu, P_export=68.28 kW, P_import=0.00 kW, Fcelu_1(1.05)=0.071021, Fcelu_2=1.9231 A, Fcelu_3=0.010295
+[2026-05-15 11:26:23] Zapisano wyniki do: results\results_pso_global_critical.xlsx

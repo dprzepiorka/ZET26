@@ -3,6 +3,7 @@ from __future__ import annotations
 import cmath
 import math
 import os
+import random
 import sys
 import time
 from copy import deepcopy
@@ -20,7 +21,7 @@ from PSO import PSO
 
 
 # =============================================================================
-# PARAMETRY
+# PARAMETRY DOMYŚLNE
 # =============================================================================
 
 POWERFACTORY_PYTHON_PATH = r"C:\Program Files\DIgSILENT\PowerFactory 2026 SP1\Python\3.14"
@@ -40,13 +41,21 @@ TRANSFORMER_LV_SIDE = "buslv"
 TRANSFORMER_EXPORT_POSITIVE = True
 
 VOLTAGE_MIN_PU = 0.90
+TARGET_VOLTAGE_PU = 1.00
 VOLTAGE_MAX_PU = 1.10
 U_MIN_ALLOWED_OBJ = 0.95
 U_MAX_ALLOWED_OBJ = 1.05
+
 LOADING_MAX_PERCENT = 100.0
 LINE_LOADING_MAX_PERCENT = 100.0
-EPS = 1e-9
 
+P_STORAGE_TOTAL_MAX_KW = 90.0
+P_STORAGE_PHASE_MAX_KW = 30.0
+ALLOW_STORAGE_CHARGE = True
+ALLOW_STORAGE_DISCHARGE = True
+KEEP_INITIAL_STORAGE_Q = True
+
+EPS = 1e-9
 TG_PHI_MAX = 0.33
 
 # PSO
@@ -55,16 +64,18 @@ N_ITER = 10
 PSO_W = 0.7
 PSO_C1 = 1.5
 PSO_C2 = 1.5
+PSO_RANDOM_SEED = 42
 PSO_AUTOSAVE_EVERY = 0
 PSO_AUTOSAVE_PATH = "results/pso_global_transformer_checkpoint.npz"
 PSO_EVAL_DELAY = 0.0
 NONCONVERGENCE_PENALTY = 1e6
 
-# Wagi funkcji celu - wariant transformatorowy
+# Wagi funkcji celu - profil transformer_flow
 W_U = 0.15
 W_VU = 0.10
 W_L = 0.15
-W_EXP = 0.30
+W_EXP = 0.20
+W_IMPORT = 0.10
 W_I = 0.20
 W_PEN = 0.05
 W_CTRL = 0.05
@@ -76,6 +87,7 @@ PHASE_ATTR_P_LOAD = {"L1": "plinir", "L2": "plinis", "L3": "plinit"}
 PHASE_ATTR_Q_LOAD = {"L1": "qlinir", "L2": "qlinis", "L3": "qlinit"}
 
 EXCEL_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+CONTROL_CONFIG: Dict[str, Any] = {}
 
 PSO_CONVERGENCE_ROWS: List[Dict[str, Any]] = []
 PSO_PARTICLE_EVAL_ROWS: List[Dict[str, Any]] = []
@@ -99,6 +111,118 @@ def log_line(msg: str) -> None:
             fh.write(line + "\n")
     except Exception:
         pass
+
+
+# =============================================================================
+# CONFIG
+# =============================================================================
+
+def parse_bool_pl(value: Any) -> bool:
+    txt = str(value).strip().lower()
+    return txt in {"1", "true", "yes", "y", "tak", "prawda"}
+
+
+def parse_config_value(value: Any) -> Any:
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float, bool)):
+        return value
+
+    txt = str(value).strip()
+    if not txt:
+        return ""
+
+    low = txt.lower()
+    if low in {"prawda", "true", "tak", "yes", "1"}:
+        return True
+    if low in {"fałsz", "falsz", "false", "nie", "no", "0"}:
+        return False
+
+    try:
+        if "." in txt:
+            return float(txt)
+        return int(txt)
+    except Exception:
+        return txt
+
+
+def load_control_config() -> Dict[str, Any]:
+    rows = excel_sheet("ControlConfig")
+    cfg: Dict[str, Any] = {}
+
+    for row in rows:
+        key = str(row.get("parameter", "")).strip()
+        if not key:
+            continue
+        cfg[key] = parse_config_value(row.get("value"))
+
+    return cfg
+
+
+def cfg_float(name: str, default: float) -> float:
+    val = CONTROL_CONFIG.get(name, default)
+    try:
+        return float(val)
+    except Exception:
+        return float(default)
+
+
+def cfg_int(name: str, default: int) -> int:
+    val = CONTROL_CONFIG.get(name, default)
+    try:
+        return int(float(val))
+    except Exception:
+        return int(default)
+
+
+def cfg_bool(name: str, default: bool) -> bool:
+    val = CONTROL_CONFIG.get(name, default)
+    if isinstance(val, bool):
+        return val
+    return parse_bool_pl(val) if val is not None else default
+
+
+def apply_runtime_config() -> None:
+    global VOLTAGE_MIN_PU, TARGET_VOLTAGE_PU, VOLTAGE_MAX_PU
+    global U_MIN_ALLOWED_OBJ, U_MAX_ALLOWED_OBJ
+    global LOADING_MAX_PERCENT
+    global P_STORAGE_TOTAL_MAX_KW, P_STORAGE_PHASE_MAX_KW
+    global ALLOW_STORAGE_CHARGE, ALLOW_STORAGE_DISCHARGE, KEEP_INITIAL_STORAGE_Q
+    global NONCONVERGENCE_PENALTY
+    global N_PARTICLES, N_ITER, PSO_W, PSO_C1, PSO_C2, PSO_RANDOM_SEED
+    global W_U, W_VU, W_L, W_EXP, W_IMPORT, W_I, W_PEN, W_CTRL
+
+    VOLTAGE_MIN_PU = cfg_float("VOLTAGE_MIN_PU", VOLTAGE_MIN_PU)
+    TARGET_VOLTAGE_PU = cfg_float("TARGET_VOLTAGE_PU", TARGET_VOLTAGE_PU)
+    VOLTAGE_MAX_PU = cfg_float("VOLTAGE_MAX_PU", VOLTAGE_MAX_PU)
+    U_MIN_ALLOWED_OBJ = cfg_float("U_MIN_ALLOWED_OBJ", U_MIN_ALLOWED_OBJ)
+    U_MAX_ALLOWED_OBJ = cfg_float("U_MAX_ALLOWED_OBJ", U_MAX_ALLOWED_OBJ)
+    LOADING_MAX_PERCENT = cfg_float("LOADING_MAX_PERCENT", LOADING_MAX_PERCENT)
+
+    P_STORAGE_TOTAL_MAX_KW = cfg_float("P_STORAGE_TOTAL_MAX_KW", P_STORAGE_TOTAL_MAX_KW)
+    P_STORAGE_PHASE_MAX_KW = cfg_float("P_STORAGE_PHASE_MAX_KW", P_STORAGE_PHASE_MAX_KW)
+    ALLOW_STORAGE_CHARGE = cfg_bool("ALLOW_STORAGE_CHARGE", ALLOW_STORAGE_CHARGE)
+    ALLOW_STORAGE_DISCHARGE = cfg_bool("ALLOW_STORAGE_DISCHARGE", ALLOW_STORAGE_DISCHARGE)
+    KEEP_INITIAL_STORAGE_Q = cfg_bool("KEEP_INITIAL_STORAGE_Q", KEEP_INITIAL_STORAGE_Q)
+
+    NONCONVERGENCE_PENALTY = cfg_float("NONCONVERGENCE_PENALTY", NONCONVERGENCE_PENALTY)
+
+    N_PARTICLES = cfg_int("PSO_N_PARTICLES", N_PARTICLES)
+    N_ITER = cfg_int("PSO_N_ITER", N_ITER)
+    PSO_W = cfg_float("PSO_W", PSO_W)
+    PSO_C1 = cfg_float("PSO_C1", PSO_C1)
+    PSO_C2 = cfg_float("PSO_C2", PSO_C2)
+    PSO_RANDOM_SEED = cfg_int("PSO_RANDOM_SEED", PSO_RANDOM_SEED)
+
+    W_U = cfg_float("W_TRAFO_U", W_U)
+    W_VU = cfg_float("W_TRAFO_VU", W_VU)
+    W_L = cfg_float("W_TRAFO_L", W_L)
+    W_EXP = cfg_float("W_TRAFO_EXP", W_EXP)
+    W_IMPORT = cfg_float("W_TRAFO_IMPORT", W_IMPORT)
+    W_I = cfg_float("W_TRAFO_I", W_I)
+    W_PEN = cfg_float("W_TRAFO_PEN", W_PEN)
+    W_CTRL = cfg_float("W_TRAFO_CTRL", W_CTRL)
 
 
 # =============================================================================
@@ -380,7 +504,7 @@ def load_storage_candidates() -> List[Dict[str, Any]]:
             "elem_L1": str(r.get("elem_L1", r.get("elem_A", ""))).strip(),
             "elem_L2": str(r.get("elem_L2", r.get("elem_B", ""))).strip(),
             "elem_L3": str(r.get("elem_L3", r.get("elem_C", ""))).strip(),
-            "Pmax_kW": float(r.get("Pmax_kW") or r.get("Pmax") or 0.0),
+            "Pmax_kW": min(float(r.get("Pmax_kW") or r.get("Pmax") or 0.0), P_STORAGE_PHASE_MAX_KW),
             "Smax_kVA": float(r.get("Smax_kVA") or r.get("Smax") or 0.0),
         }
         for r in rows
@@ -412,12 +536,18 @@ def apply_storage_to_candidate(app: Any, candidate: Dict[str, Any], rows: List[D
         p = float(row.get("p_storage_kw") or 0.0)
         q = float(row.get("q_storage_kvar") or 0.0)
 
+        if (p > 0.0) and not ALLOW_STORAGE_CHARGE:
+            p = 0.0
+        if (p < 0.0) and not ALLOW_STORAGE_DISCHARGE:
+            p = 0.0
+        p = max(-P_STORAGE_PHASE_MAX_KW, min(P_STORAGE_PHASE_MAX_KW, p))
+
         applied_row = {
             "node": candidate.get("node", ""),
             "element": name,
             "phase": ph,
             "p_storage_kw": p,
-            "q_storage_kvar": q,
+            "q_storage_kvar": q if KEEP_INITIAL_STORAGE_Q else 0.0,
             "Pmax_kW": float(candidate.get("Pmax_kW") or 0.0),
             "Smax_kVA": float(candidate.get("Smax_kVA") or 0.0),
         }
@@ -430,7 +560,7 @@ def apply_storage_to_candidate(app: Any, candidate: Dict[str, Any], rows: List[D
         elm_lod = find_element(app, name, "ElmLod")
         if elm_lod is not None:
             set_attr(elm_lod, [PHASE_ATTR_P_LOAD[ph], "plini"], p)
-            set_attr(elm_lod, [PHASE_ATTR_Q_LOAD[ph], "qlini"], q)
+            set_attr(elm_lod, [PHASE_ATTR_Q_LOAD[ph], "qlini"], applied_row["q_storage_kvar"])
             applied_rows.append(applied_row)
             continue
 
@@ -441,14 +571,20 @@ def apply_storage_to_candidate(app: Any, candidate: Dict[str, Any], rows: List[D
         )
         if elm_gen is not None:
             set_attr(elm_gen, ["pgini"], -p)
-            set_attr(elm_gen, ["qgini", "qsetp"], -q)
+            set_attr(elm_gen, ["qgini", "qsetp"], -applied_row["q_storage_kvar"])
             applied_row["p_storage_kw_in_model"] = -p
-            applied_row["q_storage_kvar_in_model"] = -q
+            applied_row["q_storage_kvar_in_model"] = -applied_row["q_storage_kvar"]
             applied_rows.append(applied_row)
             continue
 
         log_line(f"[WARN] Storage: nie znaleziono elementu '{name}' dla fazy {ph}")
         applied_rows.append(applied_row)
+
+    total_p = sum(float(r.get("p_storage_kw") or 0.0) for r in applied_rows)
+    if abs(total_p) > P_STORAGE_TOTAL_MAX_KW + EPS:
+        scale = P_STORAGE_TOTAL_MAX_KW / max(abs(total_p), EPS)
+        for r in applied_rows:
+            r["p_storage_kw"] = float(r["p_storage_kw"]) * scale
 
     return applied_rows
 
@@ -571,6 +707,12 @@ def export_kw_from_p_tr(p_tr_kw: float) -> float:
     return max(0.0, -p_tr_kw)
 
 
+def import_kw_from_p_tr(p_tr_kw: float) -> float:
+    if TRANSFORMER_EXPORT_POSITIVE:
+        return max(0.0, -p_tr_kw)
+    return max(0.0, p_tr_kw)
+
+
 def angle_deg_to_complex(magnitude: float, angle_deg: float) -> complex:
     if not math.isfinite(magnitude):
         return complex(math.nan, math.nan)
@@ -607,18 +749,19 @@ def collect_transformer_results(tr: Any) -> Dict[str, Any]:
         i_a = float(i_ka or 0.0) * 1000.0
         p_kw = None if p is None else float(p)
         q_kvar = None if q is None else float(q)
-        p_export = export_kw_from_p_tr(float(p_kw or 0.0))
 
         row[f"I_tr_{ph}_A"] = i_a
         row[f"angle_I_tr_{ph}_deg"] = phi_i
         row[f"U_tr_{ph}_pu"] = u_pu
         row[f"P_tr_{ph}_kW"] = p_kw
         row[f"Q_tr_{ph}_kvar"] = q_kvar
-        row[f"P_export_{ph}_kW"] = p_export
+        row[f"P_export_{ph}_kW"] = export_kw_from_p_tr(float(p_kw or 0.0))
+        row[f"P_import_{ph}_kW"] = import_kw_from_p_tr(float(p_kw or 0.0))
 
         i_complex.append(angle_deg_to_complex(i_a, float(phi_i) if math.isfinite(float(phi_i)) else 0.0))
 
     row["P_export_total_kW"] = sum(float(row.get(f"P_export_{ph}_kW") or 0.0) for ph in PHASES)
+    row["P_import_total_kW"] = sum(float(row.get(f"P_import_{ph}_kW") or 0.0) for ph in PHASES)
     row["loading_percent"] = get_float(tr, ["c:loading"], math.nan)
 
     i_avg = sum(float(row.get(f"I_tr_{ph}_A") or 0.0) for ph in PHASES) / 3.0
@@ -655,16 +798,18 @@ def collect_pv_setpoints(app: Any) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
 
     for pv in app.GetCalcRelevantObjects("*.ElmPvsys"):
-        p = get_float(pv, ["pgini"], 0.0)
-        q = get_float(pv, ["qgini", "qsetp"], 0.0)
+        p_set = get_float(pv, ["pgini"], 0.0)
+        q_set = get_float(pv, ["qgini", "qsetp"], 0.0)
+        q_res = get_float(pv, ["m:Q:bus1", "m:Q:buslv", "m:Q", "c:Q"], q_set)
         smax = get_float(pv, ["sgn", "sn", "snom"], 0.0)
 
         rows.append(
             {
                 "name": getattr(pv, "loc_name", ""),
-                "P_kW": p,
-                "Q_kvar": q,
-                "S_apparent_kVA": math.sqrt(p * p + q * q),
+                "P_kW": p_set,
+                "Q_kvar": q_res,
+                "Q_set_kvar": q_set,
+                "S_apparent_kVA": math.sqrt(p_set * p_set + q_res * q_res),
                 "Smax_kVA": smax,
                 "av_mode": get_attr(pv, ["av_mode"], ""),
             }
@@ -683,8 +828,17 @@ def rms_deviation(values: List[float], target: float) -> float:
     return math.sqrt(sum((v - target) ** 2 for v in values) / len(values))
 
 
+def export_import_from_transformer_phases(p_tr: List[float]) -> Tuple[float, float]:
+    export_pos = sum(max(0.0, p) for p in p_tr)
+    export_neg = sum(max(0.0, -p) for p in p_tr)
+
+    if TRANSFORMER_EXPORT_POSITIVE:
+        return export_pos, export_neg
+    return export_neg, export_pos
+
+
 # =============================================================================
-# WSKAŹNIKI I FUNKCJA CELU
+# WSKAŹNIKI RAPORTOWE
 # =============================================================================
 
 def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
@@ -694,11 +848,6 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
     alpha0_vals: List[float] = []
     alpha2_vals: List[float] = []
-    u0_abs_vals: List[float] = []
-    u1_abs_vals: List[float] = []
-    u2_abs_vals: List[float] = []
-
-    node_sequence_rows: List[Dict[str, Any]] = []
 
     for row in raw["node_voltages"]:
         vals = []
@@ -728,46 +877,16 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
             u0, u1, u2 = calc_symmetrical_components(va, vb, vc)
 
-            u0_abs = abs(u0)
             u1_abs = abs(u1)
-            u2_abs = abs(u2)
-
-            alpha0 = u0_abs / u1_abs if u1_abs > EPS else math.nan
-            alpha2 = u2_abs / u1_abs if u1_abs > EPS else math.nan
+            alpha0 = abs(u0) / u1_abs if u1_abs > EPS else math.nan
+            alpha2 = abs(u2) / u1_abs if u1_abs > EPS else math.nan
 
             if math.isfinite(alpha0):
                 alpha0_vals.append(alpha0)
             if math.isfinite(alpha2):
                 alpha2_vals.append(alpha2)
-
-            if math.isfinite(u0_abs):
-                u0_abs_vals.append(u0_abs)
-            if math.isfinite(u1_abs):
-                u1_abs_vals.append(u1_abs)
-            if math.isfinite(u2_abs):
-                u2_abs_vals.append(u2_abs)
-
-            node_sequence_rows.append(
-                {
-                    "node": row.get("node", ""),
-                    "U0_abs_pu": u0_abs,
-                    "U1_abs_pu": u1_abs,
-                    "U2_abs_pu": u2_abs,
-                    "alpha0": alpha0,
-                    "alpha2": alpha2,
-                }
-            )
         except Exception:
-            node_sequence_rows.append(
-                {
-                    "node": row.get("node", ""),
-                    "U0_abs_pu": math.nan,
-                    "U1_abs_pu": math.nan,
-                    "U2_abs_pu": math.nan,
-                    "alpha0": math.nan,
-                    "alpha2": math.nan,
-                }
-            )
+            pass
 
     tr = raw["transformer_phase_results"][0] if raw["transformer_phase_results"] else {}
 
@@ -787,8 +906,14 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     p_storage_total = p_storage_L1 + p_storage_L2 + p_storage_L3
     q_storage_total = sum(float(row.get("q_storage_kvar") or 0.0) for row in storage_rows)
 
-    udev_mean_1_00 = sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan
-    udev_mean_1_05 = sum(abs(v - 1.05) for v in voltages) / len(voltages) if voltages else math.nan
+    p_tr = [float(tr.get(f"P_tr_{ph}_kW") or 0.0) for ph in PHASES]
+    p_export_total, p_import_total = export_import_from_transformer_phases(p_tr)
+
+    i_vals = [float(tr.get(f"I_tr_{ph}_A") or 0.0) for ph in PHASES]
+    i_avg = sum(i_vals) / 3.0 if i_vals else 0.0
+    i_unb = max(abs(i - i_avg) for i in i_vals) / i_avg * 100.0 if i_avg > EPS else 0.0
+    i_neutral = float(tr.get("I_neutral_A") or 0.0)
+
     udev_rms_1_00 = rms_deviation(voltages, 1.00)
     udev_rms_1_05 = rms_deviation(voltages, 1.05)
 
@@ -797,34 +922,10 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     alpha2_mean = sum(alpha2_vals) / len(alpha2_vals) if alpha2_vals else math.nan
     alpha2_max = max(alpha2_vals) if alpha2_vals else math.nan
 
-    alpha0_sum = sum(alpha0_vals) if alpha0_vals else math.nan
-    alpha2_sum = sum(alpha2_vals) if alpha2_vals else math.nan
-
     fcelu_3_voltage_component = 0.04 * (udev_rms_1_05 if math.isfinite(udev_rms_1_05) else 0.0)
     fcelu_3_alpha2_component = 0.58 * (alpha2_mean if math.isfinite(alpha2_mean) else 0.0)
     fcelu_3_alpha0_component = 0.38 * (alpha0_mean if math.isfinite(alpha0_mean) else 0.0)
     fcelu_3 = fcelu_3_voltage_component + fcelu_3_alpha2_component + fcelu_3_alpha0_component
-
-    line_overloads = []
-    for row in raw["branch_losses"]:
-        try:
-            loading = float(row.get("loading_percent"))
-            if math.isfinite(loading):
-                line_overloads.append(max(0.0, loading / 100.0 - 1.0) ** 2)
-        except Exception:
-            pass
-    jline_raw = sum(line_overloads) / len(line_overloads) if line_overloads else 0.0
-
-    pen_terms = []
-    for row in raw["node_voltages"]:
-        for ph in PHASES:
-            try:
-                u = float(row[f"U_{ph}_pu"])
-                if math.isfinite(u):
-                    pen_terms.append(max(0.0, u - U_MAX_ALLOWED_OBJ) ** 2 + max(0.0, U_MIN_ALLOWED_OBJ - u) ** 2)
-            except Exception:
-                pass
-    jpen_raw = sum(pen_terms) / len(pen_terms) if pen_terms else 0.0
 
     violations: List[str] = []
 
@@ -837,66 +938,20 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
             except Exception:
                 pass
 
-    for row in pv_rows:
-        try:
-            p = float(row.get("P_kW") or 0.0)
-            q = float(row.get("Q_kvar") or 0.0)
-            s = math.sqrt(p * p + q * q)
-            smax = float(row.get("Smax_kVA") or 0.0)
-            if smax > EPS and s > smax + EPS:
-                violations.append(f"PV_Smax:{row.get('name')}:{s:.4f}>{smax:.4f}")
-        except Exception:
-            pass
-
-    for row in storage_rows:
-        try:
-            p = float(row.get("p_storage_kw") or 0.0)
-            q = float(row.get("q_storage_kvar") or 0.0)
-            s = math.sqrt(p * p + q * q)
-            pmax = float(row.get("Pmax_kW") or 0.0)
-            smax = float(row.get("Smax_kVA") or 0.0)
-
-            if pmax > EPS and abs(p) > pmax + EPS:
-                violations.append(f"STOR_Pmax:{row.get('element', row.get('phase', ''))}:{p:.4f}>{pmax:.4f}")
-            if smax > EPS and s > smax + EPS:
-                violations.append(f"STOR_Smax:{row.get('element', row.get('phase', ''))}:{s:.4f}>{smax:.4f}")
-        except Exception:
-            pass
-
     indicators = {
         "Umax_pu": max(voltages) if voltages else math.nan,
         "Umin_pu": min(voltages) if voltages else math.nan,
-        "Udev_mean_pu": udev_mean_1_00,
+        "Udev_mean_pu": sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan,
         "Udev_max_pu": max(abs(v - 1.0) for v in voltages) if voltages else math.nan,
-        "Udev_rms_1_00": udev_rms_1_00,
-        "Udev_rms_1_05": udev_rms_1_05,
-        "Fcelu_1_1_00": udev_rms_1_00,
-        "Fcelu_1_1_05": udev_rms_1_05,
         "Fcelu_1_Udev_rms_1_00": udev_rms_1_00,
         "Fcelu_1_Udev_rms_1_05": udev_rms_1_05,
-        "Udev_mean_1_05_pu": udev_mean_1_05,
-
         "dU_phase_max_pu": max(phase_spreads) if phase_spreads else math.nan,
         "kU2_max_percent": max(ku2_vals) if ku2_vals else math.nan,
         "kU2_mean_percent": sum(ku2_vals) / len(ku2_vals) if ku2_vals else math.nan,
-
-        "alpha0_mean": alpha0_mean,
-        "alpha0_max": alpha0_max,
-        "alpha2_mean": alpha2_mean,
         "alpha2_max": alpha2_max,
-        "alpha0_sum": alpha0_sum,
-        "alpha2_sum": alpha2_sum,
-        "U0_abs_mean_pu": sum(u0_abs_vals) / len(u0_abs_vals) if u0_abs_vals else math.nan,
-        "U1_abs_mean_pu": sum(u1_abs_vals) / len(u1_abs_vals) if u1_abs_vals else math.nan,
-        "U2_abs_mean_pu": sum(u2_abs_vals) / len(u2_abs_vals) if u2_abs_vals else math.nan,
-        "U0_abs_max_pu": max(u0_abs_vals) if u0_abs_vals else math.nan,
-        "U1_abs_max_pu": max(u1_abs_vals) if u1_abs_vals else math.nan,
-        "U2_abs_max_pu": max(u2_abs_vals) if u2_abs_vals else math.nan,
-
-        "Fcelu_3_voltage_component": fcelu_3_voltage_component,
-        "Fcelu_3_alpha2_component": fcelu_3_alpha2_component,
-        "Fcelu_3_alpha0_component": fcelu_3_alpha0_component,
-        "Fcelu_3": fcelu_3,
+        "alpha2_mean": alpha2_mean,
+        "alpha0_max": alpha0_max,
+        "alpha0_mean": alpha0_mean,
         "Fcelu_3_weighted": fcelu_3,
 
         "I_tr_L1_A": float(tr.get("I_tr_L1_A") or 0.0),
@@ -905,9 +960,8 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "angle_I_tr_L1_deg": float(tr.get("angle_I_tr_L1_deg") or 0.0),
         "angle_I_tr_L2_deg": float(tr.get("angle_I_tr_L2_deg") or 0.0),
         "angle_I_tr_L3_deg": float(tr.get("angle_I_tr_L3_deg") or 0.0),
-        "I_neutral_A": float(tr.get("I_neutral_A") or 0.0),
-        "Fcelu_2_A": float(tr.get("I_neutral_A") or 0.0),
-        "I_unbalance_tr_percent": float(tr.get("I_unbalance_tr_percent") or 0.0),
+        "I_neutral_A": i_neutral,
+        "I_unbalance_tr_percent": i_unb,
 
         "P_tr_L1_kW": float(tr.get("P_tr_L1_kW") or 0.0),
         "P_tr_L2_kW": float(tr.get("P_tr_L2_kW") or 0.0),
@@ -915,7 +969,11 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "P_export_L1_kW": float(tr.get("P_export_L1_kW") or 0.0),
         "P_export_L2_kW": float(tr.get("P_export_L2_kW") or 0.0),
         "P_export_L3_kW": float(tr.get("P_export_L3_kW") or 0.0),
-        "P_export_total_kW": float(tr.get("P_export_total_kW") or 0.0),
+        "P_import_L1_kW": float(tr.get("P_import_L1_kW") or 0.0),
+        "P_import_L2_kW": float(tr.get("P_import_L2_kW") or 0.0),
+        "P_import_L3_kW": float(tr.get("P_import_L3_kW") or 0.0),
+        "P_export_total_kW": p_export_total,
+        "P_import_total_kW": p_import_total,
 
         "P_loss_total_kW": p_loss,
         "Q_loss_total_kvar": q_loss,
@@ -930,17 +988,55 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "P_storage_total_kW": p_storage_total,
         "Q_storage_total_kvar": q_storage_total,
 
-        "Jline_raw": jline_raw,
-        "Jpen_raw": jpen_raw,
-
         "constraint_violations": ";".join(violations),
     }
 
-    raw["node_sequence_components"] = node_sequence_rows
     return indicators
 
 
-def calculate_objective_components(
+# =============================================================================
+# SKŁADNIKI FUNKCJI CELU - PROFIL transformer_flow
+# =============================================================================
+
+def calculate_jline_raw(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    line_overloads = []
+    for row in raw["branch_losses"]:
+        try:
+            loading = float(row.get("loading_percent"))
+            if math.isfinite(loading):
+                line_overloads.append(max(0.0, loading / 100.0 - 1.0) ** 2)
+        except Exception:
+            pass
+    return sum(line_overloads) / len(line_overloads) if line_overloads else 0.0
+
+
+def calculate_jpen_raw(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    pen_terms = []
+    for row in raw["node_voltages"]:
+        for ph in PHASES:
+            try:
+                u = float(row[f"U_{ph}_pu"])
+                if not math.isfinite(u):
+                    continue
+
+                low_soft = max(0.0, U_MIN_ALLOWED_OBJ - u)
+                high_soft = max(0.0, u - U_MAX_ALLOWED_OBJ)
+                low_hard = max(0.0, VOLTAGE_MIN_PU - u)
+                high_hard = max(0.0, u - VOLTAGE_MAX_PU)
+
+                pen = (
+                    2.0 * low_soft * low_soft
+                    + 1.0 * high_soft * high_soft
+                    + 20.0 * low_hard * low_hard
+                    + 20.0 * high_hard * high_hard
+                )
+                pen_terms.append(pen)
+            except Exception:
+                pass
+    return sum(pen_terms) / len(pen_terms) if pen_terms else 0.0
+
+
+def calculate_used_objective_transformer(
     indicators: Dict[str, Any],
     base_indicators: Dict[str, Any],
     pv_q_values: Sequence[float],
@@ -952,8 +1048,21 @@ def calculate_objective_components(
     ju_den = max(float(base_indicators.get("Fcelu_1_Udev_rms_1_00") or 0.0), EPS)
     ju = ju_num / ju_den
 
-    vu_num = float(indicators.get("alpha2_max") or indicators.get("kU2_max_percent") or indicators.get("dU_phase_max_pu") or 0.0)
-    vu_den = max(float(base_indicators.get("alpha2_max") or base_indicators.get("kU2_max_percent") or base_indicators.get("dU_phase_max_pu") or 0.0), EPS)
+    vu_num = float(
+        indicators.get("alpha2_max")
+        or indicators.get("kU2_max_percent")
+        or indicators.get("dU_phase_max_pu")
+        or 0.0
+    )
+    vu_den = max(
+        float(
+            base_indicators.get("alpha2_max")
+            or base_indicators.get("kU2_max_percent")
+            or base_indicators.get("dU_phase_max_pu")
+            or 0.0
+        ),
+        EPS,
+    )
     jvu = vu_num / vu_den
 
     jline_num = float(indicators.get("Jline_raw") or 0.0)
@@ -964,9 +1073,19 @@ def calculate_objective_components(
     jexport_den = max(float(base_indicators.get("P_export_total_kW") or 0.0), EPS)
     jexport = jexport_num / jexport_den if jexport_den > EPS else jexport_num
 
-    ji_num = float(indicators.get("I_neutral_A") or indicators.get("I_unbalance_tr_percent") or 0.0)
-    ji_den = max(float(base_indicators.get("I_neutral_A") or base_indicators.get("I_unbalance_tr_percent") or 0.0), EPS)
-    ji = ji_num / ji_den if ji_den > EPS else ji_num
+    jimport_num = float(indicators.get("P_import_total_kW") or 0.0)
+    jimport_den = max(float(base_indicators.get("P_import_total_kW") or 0.0), EPS)
+    jimport = jimport_num / jimport_den if jimport_den > EPS else jimport_num
+
+    i_unb_num = float(indicators.get("I_unbalance_tr_percent") or 0.0)
+    i_unb_den = max(float(base_indicators.get("I_unbalance_tr_percent") or 0.0), EPS)
+    i_unb_rel = i_unb_num / i_unb_den if i_unb_den > EPS else i_unb_num
+
+    i_neutral_num = float(indicators.get("I_neutral_A") or 0.0)
+    i_neutral_den = max(float(base_indicators.get("I_neutral_A") or 0.0), EPS)
+    i_neutral_rel = i_neutral_num / i_neutral_den if i_neutral_den > EPS else i_neutral_num
+
+    ji = 0.7 * i_unb_rel + 0.3 * i_neutral_rel
 
     jpen = float(indicators.get("Jpen_raw") or 0.0)
 
@@ -986,20 +1105,31 @@ def calculate_objective_components(
         + W_VU * jvu
         + W_L * jline
         + W_EXP * jexport
+        + W_IMPORT * jimport
         + W_I * ji
         + W_PEN * jpen
         + W_CTRL * jctrl
     )
 
     return {
+        "J_used_total": j_total,
+        "J_used_component_1": ju,
+        "J_used_component_2": jvu,
+        "J_used_component_3": jline,
+        "J_used_component_4": jexport,
+        "J_used_component_5": jimport,
+        "J_used_component_6": ji,
+        "J_used_component_7": jpen,
         "JU": ju,
         "JVU": jvu,
         "Jline": jline,
         "Jexport": jexport,
+        "Jimport": jimport,
         "JI": ji,
         "Jpen": jpen,
         "Jctrl": jctrl,
-        "J_total": j_total,
+        "I_unbalance_rel": i_unb_rel,
+        "I_neutral_rel": i_neutral_rel,
     }
 
 
@@ -1030,19 +1160,21 @@ def build_decision_vector_definition(
         lb.append(qmin)
         ub.append(qmax)
 
-    pmax = float(transformer_candidate.get("Pmax_kW") or 0.0)
+    pmax = min(float(transformer_candidate.get("Pmax_kW") or 0.0), P_STORAGE_PHASE_MAX_KW)
     for ph in PHASES:
+        low = -pmax if ALLOW_STORAGE_DISCHARGE else 0.0
+        high = pmax if ALLOW_STORAGE_CHARGE else 0.0
         defs.append(
             {
                 "var_type": "storage_p",
                 "name": transformer_candidate.get(f"elem_{ph}", ""),
                 "phase": ph,
-                "lower": -pmax,
-                "upper": pmax,
+                "lower": low,
+                "upper": high,
             }
         )
-        lb.append(-pmax)
-        ub.append(pmax)
+        lb.append(low)
+        ub.append(high)
 
     return defs, lb, ub
 
@@ -1063,7 +1195,7 @@ def storage_rows_from_p_values(p_values: Sequence[float]) -> List[Dict[str, Any]
         rows.append(
             {
                 "phase": ph,
-                "p_storage_kw": float(p),
+                "p_storage_kw": max(-P_STORAGE_PHASE_MAX_KW, min(P_STORAGE_PHASE_MAX_KW, float(p))),
                 "q_storage_kvar": 0.0,
             }
         )
@@ -1097,18 +1229,21 @@ def build_pso_config_table() -> List[Dict[str, Any]]:
         {"parameter": "PSO_W", "value": PSO_W},
         {"parameter": "PSO_C1", "value": PSO_C1},
         {"parameter": "PSO_C2", "value": PSO_C2},
+        {"parameter": "PSO_RANDOM_SEED", "value": PSO_RANDOM_SEED},
         {"parameter": "NONCONVERGENCE_PENALTY", "value": NONCONVERGENCE_PENALTY},
-        {"parameter": "W_U", "value": W_U},
-        {"parameter": "W_VU", "value": W_VU},
-        {"parameter": "W_L", "value": W_L},
-        {"parameter": "W_EXP", "value": W_EXP},
-        {"parameter": "W_I", "value": W_I},
-        {"parameter": "W_PEN", "value": W_PEN},
-        {"parameter": "W_CTRL", "value": W_CTRL},
+        {"parameter": "W_TRAFO_U", "value": W_U},
+        {"parameter": "W_TRAFO_VU", "value": W_VU},
+        {"parameter": "W_TRAFO_L", "value": W_L},
+        {"parameter": "W_TRAFO_EXP", "value": W_EXP},
+        {"parameter": "W_TRAFO_IMPORT", "value": W_IMPORT},
+        {"parameter": "W_TRAFO_I", "value": W_I},
+        {"parameter": "W_TRAFO_PEN", "value": W_PEN},
+        {"parameter": "W_TRAFO_CTRL", "value": W_CTRL},
+        {"parameter": "TARGET_VOLTAGE_PU", "value": TARGET_VOLTAGE_PU},
         {"parameter": "U_MIN_ALLOWED_OBJ", "value": U_MIN_ALLOWED_OBJ},
         {"parameter": "U_MAX_ALLOWED_OBJ", "value": U_MAX_ALLOWED_OBJ},
         {"parameter": "TG_PHI_MAX", "value": TG_PHI_MAX},
-        {"parameter": "TRANSFORMER_EXPORT_POSITIVE", "value": TRANSFORMER_EXPORT_POSITIVE},
+        {"parameter": "objective_profile", "value": "transformer_flow"},
     ]
 
 
@@ -1126,33 +1261,19 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
             "best_JVU": math.nan,
             "best_Jline": math.nan,
             "best_Jexport": math.nan,
+            "best_Jimport": math.nan,
             "best_JI": math.nan,
             "best_Jpen": math.nan,
             "best_Jctrl": math.nan,
-            "mean_JU": math.nan,
-            "mean_JVU": math.nan,
-            "mean_Jline": math.nan,
-            "mean_Jexport": math.nan,
-            "mean_JI": math.nan,
-            "mean_Jpen": math.nan,
-            "mean_Jctrl": math.nan,
         }
 
     feasible = [e for e in evals if e.get("converged")]
-    all_j = [float(e["J_total"]) for e in evals if "J_total" in e]
+    all_j = [float(e["J_used_total"]) for e in evals if "J_used_total" in e]
 
     if feasible:
-        best_eval = min(feasible, key=lambda e: float(e["J_total"]))
-        mean_ju = sum(float(e["JU"]) for e in feasible) / len(feasible)
-        mean_jvu = sum(float(e["JVU"]) for e in feasible) / len(feasible)
-        mean_jline = sum(float(e["Jline"]) for e in feasible) / len(feasible)
-        mean_jexport = sum(float(e["Jexport"]) for e in feasible) / len(feasible)
-        mean_ji = sum(float(e["JI"]) for e in feasible) / len(feasible)
-        mean_jpen = sum(float(e["Jpen"]) for e in feasible) / len(feasible)
-        mean_jctrl = sum(float(e["Jctrl"]) for e in feasible) / len(feasible)
+        best_eval = min(feasible, key=lambda e: float(e["J_used_total"]))
     else:
         best_eval = {}
-        mean_ju = mean_jvu = mean_jline = mean_jexport = mean_ji = mean_jpen = mean_jctrl = math.nan
 
     mean_j = sum(all_j) / len(all_j) if all_j else math.nan
     worst_j = max(all_j) if all_j else math.nan
@@ -1170,16 +1291,10 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
         "best_JVU": float(best_eval.get("JVU", math.nan)),
         "best_Jline": float(best_eval.get("Jline", math.nan)),
         "best_Jexport": float(best_eval.get("Jexport", math.nan)),
+        "best_Jimport": float(best_eval.get("Jimport", math.nan)),
         "best_JI": float(best_eval.get("JI", math.nan)),
         "best_Jpen": float(best_eval.get("Jpen", math.nan)),
         "best_Jctrl": float(best_eval.get("Jctrl", math.nan)),
-        "mean_JU": mean_ju,
-        "mean_JVU": mean_jvu,
-        "mean_Jline": mean_jline,
-        "mean_Jexport": mean_jexport,
-        "mean_JI": mean_ji,
-        "mean_Jpen": mean_jpen,
-        "mean_Jctrl": mean_jctrl,
     }
 
 
@@ -1215,11 +1330,12 @@ def evaluate_particle(x: Sequence[float]) -> float:
             "iteration": current_iteration,
             "particle": current_particle,
             "eval_no": PARTICLE_EVAL_COUNTER,
-            "J_total": NONCONVERGENCE_PENALTY,
+            "J_used_total": NONCONVERGENCE_PENALTY,
             "JU": math.nan,
             "JVU": math.nan,
             "Jline": math.nan,
             "Jexport": math.nan,
+            "Jimport": math.nan,
             "JI": math.nan,
             "Jpen": math.nan,
             "Jctrl": math.nan,
@@ -1241,25 +1357,28 @@ def evaluate_particle(x: Sequence[float]) -> float:
         "storage_setpoints": storage_rows,
     }
     indicators = calculate_indicators(raw)
+    indicators["Jline_raw"] = calculate_jline_raw(raw)
+    indicators["Jpen_raw"] = calculate_jpen_raw(raw)
 
-    obj = calculate_objective_components(
+    obj = calculate_used_objective_transformer(
         indicators=indicators,
         base_indicators=base_indicators,
         pv_q_values=q_pv,
         pv_specs=pv_specs,
         storage_p_values=p_storage,
-        storage_pmax=float(transformer_candidate.get("Pmax_kW") or 0.0),
+        storage_pmax=P_STORAGE_PHASE_MAX_KW,
     )
 
     eval_row = {
         "iteration": current_iteration,
         "particle": current_particle,
         "eval_no": PARTICLE_EVAL_COUNTER,
-        "J_total": obj["J_total"],
+        "J_used_total": obj["J_used_total"],
         "JU": obj["JU"],
         "JVU": obj["JVU"],
         "Jline": obj["Jline"],
         "Jexport": obj["Jexport"],
+        "Jimport": obj["Jimport"],
         "JI": obj["JI"],
         "Jpen": obj["Jpen"],
         "Jctrl": obj["Jctrl"],
@@ -1269,7 +1388,7 @@ def evaluate_particle(x: Sequence[float]) -> float:
     CURRENT_ITER_EVALS.append(eval_row)
     PSO_PARTICLE_EVAL_ROWS.append(eval_row)
 
-    return obj["J_total"]
+    return obj["J_used_total"]
 
 
 class TrackingPSO(PSO):
@@ -1367,18 +1486,35 @@ def collect_results_with_pso(
         "storage_setpoints": storage_rows,
     }
     indicators = calculate_indicators(raw)
+    indicators["Jline_raw"] = calculate_jline_raw(raw)
+    indicators["Jpen_raw"] = calculate_jpen_raw(raw)
 
-    obj = calculate_objective_components(
+    obj = calculate_used_objective_transformer(
         indicators=indicators,
         base_indicators=base_indicators,
         pv_q_values=q_pv_values,
         pv_specs=pv_specs,
         storage_p_values=[float(r["p_storage_kw"]) for r in storage_rows],
-        storage_pmax=float(storage_rows[0].get("Pmax_kW") or 0.0) if storage_rows else 0.0,
+        storage_pmax=P_STORAGE_PHASE_MAX_KW,
     )
-    indicators.update(obj)
+
+    indicators.update(
+        {
+            "objective_profile": "transformer_flow",
+            "J_used_total": obj["J_used_total"],
+            "J_used_component_1": obj["JU"],
+            "J_used_component_2": obj["JVU"],
+            "J_used_component_3": obj["Jline"],
+            "J_used_component_4": obj["Jexport"],
+            "J_used_component_5": obj["Jimport"],
+            "J_used_component_6": obj["JI"],
+            "J_used_component_7": obj["Jpen"],
+            "J_used_component_8": obj["Jctrl"],
+        }
+    )
 
     return {
+        "control_config": [{"parameter": k, "value": v} for k, v in CONTROL_CONFIG.items()],
         "inputs_loads": setup_data["loads_input"],
         "inputs_pv": setup_data["pv_input"],
         "inputs_other_generators": setup_data["other_generators_input"],
@@ -1388,7 +1524,6 @@ def collect_results_with_pso(
         "pso_particle_evals": pso_particle_evals,
         "best_solution": best_solution,
         "node_voltages": node_voltages,
-        "node_sequence_components": raw.get("node_sequence_components", []),
         "transformer_phase_results": transformer_results,
         "pv_setpoints": pv_setpoints,
         "storage_setpoints": storage_rows,
@@ -1448,7 +1583,8 @@ def export_to_excel(all_tables: Dict[str, List[Dict[str, Any]]], out_file: str) 
 # =============================================================================
 
 def run_pso_global_transformer() -> None:
-    global EXCEL_CACHE, GLOBAL_CTX, PSO_CONVERGENCE_ROWS, PSO_PARTICLE_EVAL_ROWS, CURRENT_ITER_EVALS, PARTICLE_EVAL_COUNTER
+    global EXCEL_CACHE, CONTROL_CONFIG, GLOBAL_CTX
+    global PSO_CONVERGENCE_ROWS, PSO_PARTICLE_EVAL_ROWS, CURRENT_ITER_EVALS, PARTICLE_EVAL_COUNTER
 
     PARTICLE_EVAL_COUNTER = 0
     PSO_CONVERGENCE_ROWS = []
@@ -1467,8 +1603,19 @@ def run_pso_global_transformer() -> None:
     log_line("Start pso_global_transformer.py")
 
     EXCEL_CACHE = load_excel_cache(EXCEL_FILE)
+    CONTROL_CONFIG = load_control_config()
+    apply_runtime_config()
+
+    random.seed(PSO_RANDOM_SEED)
+    np.random.seed(PSO_RANDOM_SEED)
+
     log_line(f"Wczytano Excel: {EXCEL_FILE}")
     log_line(f"Arkusze: {', '.join(sorted(EXCEL_CACHE.keys()))}")
+    log_line(
+        f"Config: Vmin={VOLTAGE_MIN_PU}, Vtarget={TARGET_VOLTAGE_PU}, Vmax={VOLTAGE_MAX_PU}, "
+        f"Uobj=[{U_MIN_ALLOWED_OBJ}, {U_MAX_ALLOWED_OBJ}], "
+        f"PSO particles={N_PARTICLES}, iter={N_ITER}, seed={PSO_RANDOM_SEED}"
+    )
 
     app, ldf = connect_powerfactory()
     tr = get_transformer(app)
@@ -1498,6 +1645,8 @@ def run_pso_global_transformer() -> None:
         "storage_setpoints": base_storage_rows,
     }
     base_indicators = calculate_indicators(base_raw)
+    base_indicators["Jline_raw"] = calculate_jline_raw(base_raw)
+    base_indicators["Jpen_raw"] = calculate_jpen_raw(base_raw)
 
     var_defs, lb, ub = build_decision_vector_definition(pv_specs, transformer_candidate)
 
@@ -1568,12 +1717,11 @@ def run_pso_global_transformer() -> None:
         "Zakończono. "
         f"J_best={j_best:.6f}, "
         f"P_export={ind['P_export_total_kW']:.2f} kW, "
+        f"P_import={ind['P_import_total_kW']:.2f} kW, "
         f"I_neutral={ind['I_neutral_A']:.2f} A, "
-        f"I_unbalance={ind['I_unbalance_tr_percent']:.2f}%, "
+        f"I_unbalance={ind['I_unbalance_tr_percent']:.2f} %, "
         f"Umax={ind['Umax_pu']:.4f} pu, "
-        f"Umin={ind['Umin_pu']:.4f} pu, "
-        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
-        f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
+        f"Umin={ind['Umin_pu']:.4f} pu"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
 
