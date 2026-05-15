@@ -43,8 +43,16 @@ ASYMMETRY_MAX_PASSES = 10
 VOLTAGE_MIN_PU = 0.90
 TARGET_VOLTAGE_PU = 1.00
 VOLTAGE_MAX_PU = 1.10
+
 U_MIN_ALLOWED_OBJ = 0.95
 U_MAX_ALLOWED_OBJ = 1.05
+U_TOL_PU = 0.01
+
+P_EXPORT_REF_KW = 100.0
+
+K_U = 100.0
+K_L = 100.0
+K_T = 100.0
 
 LOADING_MAX_PERCENT = 100.0
 LINE_LOADING_MAX_PERCENT = 100.0
@@ -157,17 +165,28 @@ def cfg_bool(name: str, default: bool) -> bool:
 
 def apply_runtime_config() -> None:
     global VOLTAGE_MIN_PU, TARGET_VOLTAGE_PU, VOLTAGE_MAX_PU
-    global U_MIN_ALLOWED_OBJ, U_MAX_ALLOWED_OBJ
+    global U_MIN_ALLOWED_OBJ, U_MAX_ALLOWED_OBJ, U_TOL_PU
+    global P_EXPORT_REF_KW
+    global K_U, K_L, K_T
     global LOADING_MAX_PERCENT
     global P_STORAGE_TOTAL_MAX_KW, P_STORAGE_PHASE_MAX_KW
     global ALLOW_STORAGE_CHARGE, ALLOW_STORAGE_DISCHARGE, KEEP_INITIAL_STORAGE_Q
-    global N_ITER
+    global N_ITER, ASYMMETRY_EXPORT_TOLERANCE_KW, ASYMMETRY_ENABLE, ASYMMETRY_MAX_PASSES
 
     VOLTAGE_MIN_PU = cfg_float("VOLTAGE_MIN_PU", VOLTAGE_MIN_PU)
-    TARGET_VOLTAGE_PU = cfg_float("TARGET_VOLTAGE_PU", TARGET_VOLTAGE_PU)
+    TARGET_VOLTAGE_PU = cfg_float("UREF_PU", cfg_float("TARGET_VOLTAGE_PU", TARGET_VOLTAGE_PU))
     VOLTAGE_MAX_PU = cfg_float("VOLTAGE_MAX_PU", VOLTAGE_MAX_PU)
-    U_MIN_ALLOWED_OBJ = cfg_float("U_MIN_ALLOWED_OBJ", U_MIN_ALLOWED_OBJ)
-    U_MAX_ALLOWED_OBJ = cfg_float("U_MAX_ALLOWED_OBJ", U_MAX_ALLOWED_OBJ)
+
+    U_MIN_ALLOWED_OBJ = cfg_float("U_MIN_ALLOWED_PU", cfg_float("U_MIN_ALLOWED_OBJ", U_MIN_ALLOWED_OBJ))
+    U_MAX_ALLOWED_OBJ = cfg_float("U_MAX_ALLOWED_PU", cfg_float("U_MAX_ALLOWED_OBJ", U_MAX_ALLOWED_OBJ))
+    U_TOL_PU = cfg_float("U_TOL_PU", U_TOL_PU)
+
+    P_EXPORT_REF_KW = cfg_float("P_EXPORT_REF_KW", P_EXPORT_REF_KW)
+
+    K_U = cfg_float("K_U", K_U)
+    K_L = cfg_float("K_L", K_L)
+    K_T = cfg_float("K_T", K_T)
+
     LOADING_MAX_PERCENT = cfg_float("LOADING_MAX_PERCENT", LOADING_MAX_PERCENT)
 
     P_STORAGE_TOTAL_MAX_KW = cfg_float("P_STORAGE_TOTAL_MAX_KW", P_STORAGE_TOTAL_MAX_KW)
@@ -176,7 +195,10 @@ def apply_runtime_config() -> None:
     ALLOW_STORAGE_DISCHARGE = cfg_bool("ALLOW_STORAGE_DISCHARGE", ALLOW_STORAGE_DISCHARGE)
     KEEP_INITIAL_STORAGE_Q = cfg_bool("KEEP_INITIAL_STORAGE_Q", KEEP_INITIAL_STORAGE_Q)
 
-    N_ITER = cfg_int("PSO_N_ITER", N_ITER)
+    N_ITER = cfg_int("LOCAL_N_ITER", cfg_int("PSO_N_ITER", N_ITER))
+    ASYMMETRY_EXPORT_TOLERANCE_KW = cfg_float("ASYMMETRY_EXPORT_TOLERANCE_KW", ASYMMETRY_EXPORT_TOLERANCE_KW)
+    ASYMMETRY_ENABLE = cfg_bool("ASYMMETRY_ENABLE", ASYMMETRY_ENABLE)
+    ASYMMETRY_MAX_PASSES = cfg_int("ASYMMETRY_MAX_PASSES", ASYMMETRY_MAX_PASSES)
 
 
 # =============================================================================
@@ -828,6 +850,108 @@ def export_import_from_transformer_phases(p_tr: List[float]) -> Tuple[float, flo
     return export_neg, export_pos
 
 
+def calc_all_voltage_values(raw: Dict[str, List[Dict[str, Any]]]) -> List[float]:
+    vals: List[float] = []
+    for row in raw["node_voltages"]:
+        for ph in PHASES:
+            try:
+                u = float(row[f"U_{ph}_pu"])
+                if math.isfinite(u):
+                    vals.append(u)
+            except Exception:
+                pass
+    return vals
+
+
+def calc_penalty_u(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    vals = calc_all_voltage_values(raw)
+    if not vals:
+        return 0.0
+
+    total = 0.0
+    for u in vals:
+        total += (
+            (max(0.0, u - U_MAX_ALLOWED_OBJ) / max(U_TOL_PU, EPS)) ** 2
+            + (max(0.0, U_MIN_ALLOWED_OBJ - u) / max(U_TOL_PU, EPS)) ** 2
+        )
+    return total
+
+
+def calc_penalty_lines(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    total = 0.0
+    for row in raw["branch_losses"]:
+        try:
+            loading = float(row.get("loading_percent"))
+            if math.isfinite(loading):
+                total += max(0.0, loading / 100.0 - 1.0) ** 2
+        except Exception:
+            pass
+    return total
+
+
+def calc_penalty_trafo(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    tr = raw["transformer_phase_results"][0] if raw["transformer_phase_results"] else {}
+    try:
+        loading = float(tr.get("loading_percent"))
+        if math.isfinite(loading):
+            return max(0.0, loading / 100.0 - 1.0) ** 2
+    except Exception:
+        pass
+    return 0.0
+
+
+def calc_ju(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    vals = calc_all_voltage_values(raw)
+    if not vals:
+        return math.nan
+    return math.sqrt(sum((u - TARGET_VOLTAGE_PU) ** 2 for u in vals) / len(vals))
+
+
+def calc_ja(raw: Dict[str, List[Dict[str, Any]]], alpha2_max: float, ku2_max_percent: float) -> float:
+    if math.isfinite(alpha2_max):
+        return alpha2_max
+    if math.isfinite(ku2_max_percent):
+        return ku2_max_percent / 100.0
+    return math.nan
+
+
+def calc_ji(i_unbalance_tr_percent: float) -> float:
+    if not math.isfinite(i_unbalance_tr_percent):
+        return math.nan
+    return i_unbalance_tr_percent / 100.0
+
+
+def calc_jp(p_export_total_kw: float) -> float:
+    ref = max(P_EXPORT_REF_KW, EPS)
+    return p_export_total_kw / ref
+
+
+def calc_f1(ju: float, ja: float, penalty_u: float, penalty_lines: float, penalty_trafo: float) -> float:
+    ju_used = 0.0 if not math.isfinite(ju) else ju
+    ja_used = 0.0 if not math.isfinite(ja) else ja
+    return (
+        0.70 * ju_used
+        + 0.30 * ja_used
+        + K_U * penalty_u
+        + K_L * penalty_lines
+        + K_T * penalty_trafo
+    )
+
+
+def calc_f2(ju: float, ji: float, jp: float, penalty_u: float, penalty_lines: float, penalty_trafo: float) -> float:
+    ju_used = 0.0 if not math.isfinite(ju) else ju
+    ji_used = 0.0 if not math.isfinite(ji) else ji
+    jp_used = 0.0 if not math.isfinite(jp) else jp
+    return (
+        0.20 * ju_used
+        + 0.35 * ji_used
+        + 0.45 * jp_used
+        + K_U * penalty_u
+        + K_L * penalty_lines
+        + K_T * penalty_trafo
+    )
+
+
 # =============================================================================
 # REGULATOR TRANSFORMATOROWY DWUETAPOWY
 # =============================================================================
@@ -1420,6 +1544,26 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     fcelu_3_alpha0_component = 0.38 * (alpha0_mean if math.isfinite(alpha0_mean) else 0.0)
     fcelu_3 = fcelu_3_voltage_component + fcelu_3_alpha2_component + fcelu_3_alpha0_component
 
+    raw_for_penalty = {
+        "node_voltages": raw["node_voltages"],
+        "transformer_phase_results": raw["transformer_phase_results"],
+        "branch_losses": raw["branch_losses"],
+        "pv_setpoints": raw.get("pv_setpoints", []),
+        "storage_setpoints": raw.get("storage_setpoints", []),
+    }
+
+    penalty_u = calc_penalty_u(raw_for_penalty)
+    penalty_lines = calc_penalty_lines(raw_for_penalty)
+    penalty_trafo = calc_penalty_trafo(raw_for_penalty)
+
+    ju = calc_ju(raw_for_penalty)
+    ja = calc_ja(raw_for_penalty, alpha2_max, max(ku2_vals) if ku2_vals else math.nan)
+    ji = calc_ji(i_unb)
+    jp = calc_jp(p_export_total)
+
+    f1 = calc_f1(ju, ja, penalty_u, penalty_lines, penalty_trafo)
+    f2 = calc_f2(ju, ji, jp, penalty_u, penalty_lines, penalty_trafo)
+
     violations: List[str] = []
 
     for row in raw["node_voltages"]:
@@ -1486,11 +1630,21 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "Q_storage_total_kvar": q_storage_total,
         "Fcelu_2_A": float(tr.get("I_neutral_A") or 0.0),
 
-        "objective_profile": "transformer_flow",
+        "JU": ju,
+        "JA": ja,
+        "JI": ji,
+        "JP": jp,
+        "penalty_U": penalty_u,
+        "penalty_lines": penalty_lines,
+        "penalty_trafo": penalty_trafo,
+        "F1": f1,
+        "F2": f2,
+
+        "objective_profile": "transformer_flow_local",
         "J_used_total": "",
         "J_used_component_1": "local_export_reduction",
         "J_used_component_2": "local_current_asymmetry_reduction",
-        "J_used_component_3": "implicit_voltage_limits",
+        "J_used_component_3": "heuristic_step_search",
         "J_used_component_4": "",
         "J_used_component_5": "",
 
@@ -1616,8 +1770,10 @@ def run_local_transformer_flow_control() -> None:
     log_line(f"Wczytano Excel: {EXCEL_FILE}")
     log_line(f"Arkusze: {', '.join(sorted(EXCEL_CACHE.keys()))}")
     log_line(
-        f"Config: Vmin={VOLTAGE_MIN_PU}, Vtarget={TARGET_VOLTAGE_PU}, Vmax={VOLTAGE_MAX_PU}, "
-        f"Uobj=[{U_MIN_ALLOWED_OBJ}, {U_MAX_ALLOWED_OBJ}], Iter={N_ITER}"
+        f"Config: Vmin={VOLTAGE_MIN_PU}, Uref={TARGET_VOLTAGE_PU}, Vmax={VOLTAGE_MAX_PU}, "
+        f"Uallowed=[{U_MIN_ALLOWED_OBJ}, {U_MAX_ALLOWED_OBJ}], "
+        f"Utol={U_TOL_PU}, PexportRef={P_EXPORT_REF_KW}, "
+        f"K=({K_U}, {K_L}, {K_T}), Iter={N_ITER}"
     )
 
     transformer_steps = load_storage_transformer_steps()
@@ -1845,7 +2001,8 @@ def run_local_transformer_flow_control() -> None:
         f"eksport={ind['P_export_total_kW']:.2f} kW, "
         f"import={ind['P_import_total_kW']:.2f} kW, "
         f"I_neutral={ind['I_neutral_A']:.2f} A, "
-        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
+        f"F1={ind['F1']:.6f}, "
+        f"F2={ind['F2']:.6f}, "
         f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
