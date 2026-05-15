@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cmath
 import math
 import os
 import sys
@@ -592,6 +593,8 @@ def collect_node_voltages(app: Any) -> List[Dict[str, Any]]:
 def collect_transformer_results(tr: Any) -> Dict[str, Any]:
     row = {"transformer": getattr(tr, "loc_name", "")}
 
+    i_complex = []
+
     for ph in PHASES:
         pf_ph = PF_PHASE[ph]
 
@@ -602,13 +605,26 @@ def collect_transformer_results(tr: Any) -> Dict[str, Any]:
         p = get_attr(tr, [f"m:P:{TRANSFORMER_LV_SIDE}:{pf_ph}", f"m:P:{pf_ph}", f"c:P:{pf_ph}"], None)
         q = get_attr(tr, [f"m:Q:{TRANSFORMER_LV_SIDE}:{pf_ph}", f"m:Q:{pf_ph}", f"c:Q:{pf_ph}"], None)
 
-        row[f"I_tr_{ph}_A"] = float(i_ka or 0.0) * 1000.0
+        i_a = float(i_ka or 0.0) * 1000.0
+
+        row[f"I_tr_{ph}_A"] = i_a
         row[f"angle_I_tr_{ph}_deg"] = phi_i
         row[f"U_tr_{ph}_pu"] = u_pu
         row[f"P_tr_{ph}_kW"] = None if p is None else float(p)
         row[f"Q_tr_{ph}_kvar"] = None if q is None else float(q)
 
+        i_complex.append(angle_deg_to_complex(i_a, float(phi_i) if math.isfinite(float(phi_i)) else 0.0))
+
     row["loading_percent"] = get_float(tr, ["c:loading"], math.nan)
+
+    i_avg = sum(float(row.get(f"I_tr_{ph}_A") or 0.0) for ph in PHASES) / 3.0
+    row["I_unbalance_tr_percent"] = (
+        max(abs(float(row.get(f"I_tr_{ph}_A") or 0.0) - i_avg) for ph in PHASES) / i_avg * 100.0
+        if i_avg > EPS else 0.0
+    )
+
+    row["I_neutral_A"] = abs(sum(i_complex))
+
     return row
 
 
@@ -651,6 +667,34 @@ def collect_pv_setpoints(app: Any) -> List[Dict[str, Any]]:
         )
 
     return rows
+
+
+# =============================================================================
+# POMOCNICZE OBLICZENIA
+# =============================================================================
+
+def angle_deg_to_complex(magnitude: float, angle_deg: float) -> complex:
+    if not math.isfinite(magnitude):
+        return complex(math.nan, math.nan)
+    if not math.isfinite(angle_deg):
+        return complex(magnitude, 0.0)
+    return cmath.rect(magnitude, math.radians(angle_deg))
+
+
+def calc_symmetrical_components(v_a: complex, v_b: complex, v_c: complex) -> Tuple[complex, complex, complex]:
+    a = complex(-0.5, math.sqrt(3.0) / 2.0)
+    a2 = a * a
+
+    u0 = (v_a + v_b + v_c) / 3.0
+    u1 = (v_a + a * v_b + a2 * v_c) / 3.0
+    u2 = (v_a + a2 * v_b + a * v_c) / 3.0
+    return u0, u1, u2
+
+
+def rms_deviation(values: List[float], target: float) -> float:
+    if not values:
+        return math.nan
+    return math.sqrt(sum((v - target) ** 2 for v in values) / len(values))
 
 
 # =============================================================================
@@ -1055,7 +1099,6 @@ def try_reduce_asymmetry(
                     best_candidate_score = score
                     best_tr_after = tr_after
 
-                # po każdej próbie wracamy do bieżącego stanu
                 restore_rows, conv_restore, rc_restore = apply_and_run_storage(app, ldf, candidate, current_rows)
                 loadflow_attempts.extend(
                     build_storage_attempt_rows(
@@ -1132,6 +1175,14 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     phase_spreads: List[float] = []
     ku2_vals: List[float] = []
 
+    alpha0_vals: List[float] = []
+    alpha2_vals: List[float] = []
+    u0_abs_vals: List[float] = []
+    u1_abs_vals: List[float] = []
+    u2_abs_vals: List[float] = []
+
+    node_sequence_rows: List[Dict[str, Any]] = []
+
     for row in raw["node_voltages"]:
         vals = []
         for ph in PHASES:
@@ -1153,6 +1204,54 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         except Exception:
             pass
 
+        try:
+            va = angle_deg_to_complex(float(row["U_L1_pu"]), float(row["angle_L1_deg"]))
+            vb = angle_deg_to_complex(float(row["U_L2_pu"]), float(row["angle_L2_deg"]))
+            vc = angle_deg_to_complex(float(row["U_L3_pu"]), float(row["angle_L3_deg"]))
+
+            u0, u1, u2 = calc_symmetrical_components(va, vb, vc)
+
+            u0_abs = abs(u0)
+            u1_abs = abs(u1)
+            u2_abs = abs(u2)
+
+            alpha0 = u0_abs / u1_abs if u1_abs > EPS else math.nan
+            alpha2 = u2_abs / u1_abs if u1_abs > EPS else math.nan
+
+            if math.isfinite(alpha0):
+                alpha0_vals.append(alpha0)
+            if math.isfinite(alpha2):
+                alpha2_vals.append(alpha2)
+
+            if math.isfinite(u0_abs):
+                u0_abs_vals.append(u0_abs)
+            if math.isfinite(u1_abs):
+                u1_abs_vals.append(u1_abs)
+            if math.isfinite(u2_abs):
+                u2_abs_vals.append(u2_abs)
+
+            node_sequence_rows.append(
+                {
+                    "node": row.get("node", ""),
+                    "U0_abs_pu": u0_abs,
+                    "U1_abs_pu": u1_abs,
+                    "U2_abs_pu": u2_abs,
+                    "alpha0": alpha0,
+                    "alpha2": alpha2,
+                }
+            )
+        except Exception:
+            node_sequence_rows.append(
+                {
+                    "node": row.get("node", ""),
+                    "U0_abs_pu": math.nan,
+                    "U1_abs_pu": math.nan,
+                    "U2_abs_pu": math.nan,
+                    "alpha0": math.nan,
+                    "alpha2": math.nan,
+                }
+            )
+
     tr = raw["transformer_phase_results"][0] if raw["transformer_phase_results"] else {}
 
     i_vals = [float(tr.get(f"I_tr_{ph}_A") or 0.0) for ph in PHASES]
@@ -1168,6 +1267,13 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         except Exception:
             pass
     angle_spread = max(angle_vals) - min(angle_vals) if angle_vals else math.nan
+
+    i_complex = []
+    for ph in PHASES:
+        i_mag = float(tr.get(f"I_tr_{ph}_A") or 0.0)
+        i_ang = float(tr.get(f"angle_I_tr_{ph}_deg") or 0.0)
+        i_complex.append(angle_deg_to_complex(i_mag, i_ang))
+    fcelu_2 = abs(sum(i_complex))
 
     p_tr = [float(tr.get(f"P_tr_{ph}_kW") or 0.0) for ph in PHASES]
     p_export_phase = [export_kw_from_p_tr(p) for p in p_tr]
@@ -1189,6 +1295,24 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
     p_storage_total = sum(p_storage)
     q_storage_total = sum(float(row.get("q_storage_kvar") or 0.0) for row in storage_rows)
+
+    udev_mean_1_00 = sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan
+    udev_mean_1_05 = sum(abs(v - 1.05) for v in voltages) / len(voltages) if voltages else math.nan
+    udev_rms_1_00 = rms_deviation(voltages, 1.00)
+    udev_rms_1_05 = rms_deviation(voltages, 1.05)
+
+    alpha0_mean = sum(alpha0_vals) / len(alpha0_vals) if alpha0_vals else math.nan
+    alpha0_max = max(alpha0_vals) if alpha0_vals else math.nan
+    alpha2_mean = sum(alpha2_vals) / len(alpha2_vals) if alpha2_vals else math.nan
+    alpha2_max = max(alpha2_vals) if alpha2_vals else math.nan
+
+    alpha0_sum = sum(alpha0_vals) if alpha0_vals else math.nan
+    alpha2_sum = sum(alpha2_vals) if alpha2_vals else math.nan
+
+    fcelu_3_voltage_component = 0.04 * (udev_rms_1_05 if math.isfinite(udev_rms_1_05) else 0.0)
+    fcelu_3_alpha2_component = 0.58 * (alpha2_mean if math.isfinite(alpha2_mean) else 0.0)
+    fcelu_3_alpha0_component = 0.38 * (alpha0_mean if math.isfinite(alpha0_mean) else 0.0)
+    fcelu_3 = fcelu_3_voltage_component + fcelu_3_alpha2_component + fcelu_3_alpha0_component
 
     violations: List[str] = []
 
@@ -1245,19 +1369,32 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     return {
         "Umax_pu": max(voltages) if voltages else math.nan,
         "Umin_pu": min(voltages) if voltages else math.nan,
-        "Udev_mean_pu": sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan,
+        "Udev_mean_pu": udev_mean_1_00,
         "Udev_max_pu": max(abs(v - 1.0) for v in voltages) if voltages else math.nan,
         "dU_phase_max_pu": max(phase_spreads) if phase_spreads else math.nan,
         "kU2_max_percent": max(ku2_vals) if ku2_vals else math.nan,
         "kU2_mean_percent": sum(ku2_vals) / len(ku2_vals) if ku2_vals else math.nan,
+
+        "Udev_rms_1_00": udev_rms_1_00,
+        "Udev_rms_1_05": udev_rms_1_05,
+        "Fcelu_1_1_00": udev_rms_1_00,
+        "Fcelu_1_1_05": udev_rms_1_05,
+        "Fcelu_1_Udev_rms_1_00": udev_rms_1_00,
+        "Fcelu_1_Udev_rms_1_05": udev_rms_1_05,
+        "Udev_mean_1_05_pu": udev_mean_1_05,
+
         "I_tr_L1_A": i_vals[0],
         "I_tr_L2_A": i_vals[1],
         "I_tr_L3_A": i_vals[2],
         "I_unbalance_tr_percent": i_unb,
+        "I_neutral_A": fcelu_2,
+        "Fcelu_2_A": fcelu_2,
+
         "angle_I_tr_L1_deg": float(tr.get("angle_I_tr_L1_deg") or 0.0),
         "angle_I_tr_L2_deg": float(tr.get("angle_I_tr_L2_deg") or 0.0),
         "angle_I_tr_L3_deg": float(tr.get("angle_I_tr_L3_deg") or 0.0),
         "angle_spread_deg": angle_spread,
+
         "P_tr_L1_kW": p_tr[0],
         "P_tr_L2_kW": p_tr[1],
         "P_tr_L3_kW": p_tr[2],
@@ -1265,16 +1402,39 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "P_export_L2_kW": p_export_phase[1],
         "P_export_L3_kW": p_export_phase[2],
         "P_export_total_kW": p_export,
+
         "P_loss_total_kW": p_loss,
         "Q_loss_total_kvar": q_loss,
+
         "P_pv_total_kW": p_pv_total,
         "Q_pv_total_kvar": q_pv_total,
         "Q_pv_abs_sum_kvar": q_pv_abs_sum,
+
         "P_storage_L1_kW": p_storage[0],
         "P_storage_L2_kW": p_storage[1],
         "P_storage_L3_kW": p_storage[2],
         "P_storage_total_kW": p_storage_total,
         "Q_storage_total_kvar": q_storage_total,
+
+        "alpha0_mean": alpha0_mean,
+        "alpha0_max": alpha0_max,
+        "alpha2_mean": alpha2_mean,
+        "alpha2_max": alpha2_max,
+        "alpha0_sum": alpha0_sum,
+        "alpha2_sum": alpha2_sum,
+        "U0_abs_mean_pu": sum(u0_abs_vals) / len(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_mean_pu": sum(u1_abs_vals) / len(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_mean_pu": sum(u2_abs_vals) / len(u2_abs_vals) if u2_abs_vals else math.nan,
+        "U0_abs_max_pu": max(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_max_pu": max(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_max_pu": max(u2_abs_vals) if u2_abs_vals else math.nan,
+
+        "Fcelu_3_voltage_component": fcelu_3_voltage_component,
+        "Fcelu_3_alpha2_component": fcelu_3_alpha2_component,
+        "Fcelu_3_alpha0_component": fcelu_3_alpha0_component,
+        "Fcelu_3": fcelu_3,
+        "Fcelu_3_weighted": fcelu_3,
+
         "constraint_violations": ";".join(violations),
     }
 
@@ -1310,6 +1470,7 @@ def collect_results(
         "inputs_storage_transformer_meta": setup_data["transformer_storage_meta"],
         "inputs_storage_transformer_steps": transformer_steps,
         "node_voltages": node_voltages,
+        "node_sequence_components": raw.get("node_sequence_components", []),
         "transformer_phase_results": transformer_results,
         "pv_setpoints": pv_setpoints,
         "storage_setpoints": storage_rows,
@@ -1496,7 +1657,6 @@ def run_local_transformer_flow_control() -> None:
     for iter_no in range(1, N_ITER + 1):
         log_line(f"--- Iteracja transformatorowej regulacji lokalnej {iter_no} ---")
 
-        # ETAP 1: minimalizacja eksportu fazowego
         for phase in PHASES:
             current_storage_rows = optimize_single_phase_export(
                 app=app,
@@ -1520,7 +1680,6 @@ def run_local_transformer_flow_control() -> None:
                 f"P_export_after={current_storage_rows[idx].get('p_export_after_kw')}"
             )
 
-        # ETAP 2: aktywna lokalna korekta asymetrii
         current_storage_rows = try_reduce_asymmetry(
             app=app,
             ldf=ldf,
@@ -1557,6 +1716,7 @@ def run_local_transformer_flow_control() -> None:
             "I_tr_L2_A": tr_row_final.get("I_tr_L2_A"),
             "I_tr_L3_A": tr_row_final.get("I_tr_L3_A"),
             "I_unbalance_percent": i_unb,
+            "I_neutral_A": tr_row_final.get("I_neutral_A"),
             "angle_I_tr_L1_deg": tr_row_final.get("angle_I_tr_L1_deg"),
             "angle_I_tr_L2_deg": tr_row_final.get("angle_I_tr_L2_deg"),
             "angle_I_tr_L3_deg": tr_row_final.get("angle_I_tr_L3_deg"),
@@ -1600,7 +1760,10 @@ def run_local_transformer_flow_control() -> None:
         f"Umax={ind['Umax_pu']:.4f} pu, "
         f"Umin={ind['Umin_pu']:.4f} pu, "
         f"P_storage_total={ind['P_storage_total_kW']:.2f} kW, "
-        f"eksport={ind['P_export_total_kW']:.2f} kW"
+        f"eksport={ind['P_export_total_kW']:.2f} kW, "
+        f"I_neutral={ind['I_neutral_A']:.2f} A, "
+        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
+        f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
 

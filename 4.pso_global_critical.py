@@ -567,6 +567,8 @@ def collect_node_voltages(app: Any) -> List[Dict[str, Any]]:
 def collect_transformer_results(tr: Any) -> Dict[str, Any]:
     row = {"transformer": getattr(tr, "loc_name", "")}
 
+    i_complex = []
+
     for ph in PHASES:
         pf_ph = PF_PHASE[ph]
 
@@ -584,12 +586,17 @@ def collect_transformer_results(tr: Any) -> Dict[str, Any]:
             None,
         )
 
-        row[f"I_tr_{ph}_A"] = float(i_ka or 0.0) * 1000.0
+        i_a = float(i_ka or 0.0) * 1000.0
+
+        row[f"I_tr_{ph}_A"] = i_a
         row[f"angle_I_tr_{ph}_deg"] = phi_i
         row[f"P_tr_{ph}_kW"] = None if p is None else float(p)
         row[f"Q_tr_{ph}_kvar"] = None if q is None else float(q)
 
+        i_complex.append(angle_deg_to_complex(i_a, float(phi_i) if math.isfinite(float(phi_i)) else 0.0))
+
     row["loading_percent"] = get_float(tr, ["c:loading"], math.nan)
+    row["I_neutral_A"] = abs(sum(i_complex))
     return row
 
 
@@ -766,6 +773,8 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     i_avg = sum(i_vals) / 3.0 if i_vals else 0.0
     i_unb = max(abs(i - i_avg) for i in i_vals) / i_avg * 100.0 if i_avg > EPS else 0.0
 
+    fcelu_2 = float(tr.get("I_neutral_A") or 0.0)
+
     p_tr = [float(tr.get(f"P_tr_{ph}_kW") or 0.0) for ph in PHASES]
     p_export_config, p_export_auto_reference = detect_export_total_from_transformer(p_tr)
 
@@ -872,6 +881,10 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "kU2_max_percent": max(ku2_vals) if ku2_vals else math.nan,
         "kU2_mean_percent": sum(ku2_vals) / len(ku2_vals) if ku2_vals else math.nan,
 
+        "Udev_rms_1_00": udev_rms_1_00,
+        "Udev_rms_1_05": udev_rms_1_05,
+        "Fcelu_1_1_00": udev_rms_1_00,
+        "Fcelu_1_1_05": udev_rms_1_05,
         "Fcelu_1_Udev_rms_1_00": udev_rms_1_00,
         "Fcelu_1_Udev_rms_1_05": udev_rms_1_05,
         "Udev_mean_1_05_pu": udev_mean_1_05,
@@ -879,6 +892,11 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "I_tr_L1_A": i_vals[0],
         "I_tr_L2_A": i_vals[1],
         "I_tr_L3_A": i_vals[2],
+        "angle_I_tr_L1_deg": float(tr.get("angle_I_tr_L1_deg") or 0.0),
+        "angle_I_tr_L2_deg": float(tr.get("angle_I_tr_L2_deg") or 0.0),
+        "angle_I_tr_L3_deg": float(tr.get("angle_I_tr_L3_deg") or 0.0),
+        "I_neutral_A": fcelu_2,
+        "Fcelu_2_A": fcelu_2,
         "I_unbalance_tr_percent": i_unb,
 
         "P_tr_L1_kW": p_tr[0],
@@ -906,7 +924,17 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "alpha2_max": alpha2_max,
         "alpha0_sum": alpha0_sum,
         "alpha2_sum": alpha2_sum,
+        "U0_abs_mean_pu": sum(u0_abs_vals) / len(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_mean_pu": sum(u1_abs_vals) / len(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_mean_pu": sum(u2_abs_vals) / len(u2_abs_vals) if u2_abs_vals else math.nan,
+        "U0_abs_max_pu": max(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_max_pu": max(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_max_pu": max(u2_abs_vals) if u2_abs_vals else math.nan,
 
+        "Fcelu_3_voltage_component": fcelu_3_voltage_component,
+        "Fcelu_3_alpha2_component": fcelu_3_alpha2_component,
+        "Fcelu_3_alpha0_component": fcelu_3_alpha0_component,
+        "Fcelu_3": fcelu_3,
         "Fcelu_3_weighted": fcelu_3,
 
         "Jline_raw": jline_raw,
@@ -1220,7 +1248,6 @@ class TrackingPSO(PSO):
     def optimize(self):
         global CURRENT_ITER_EVALS, PSO_CONVERGENCE_ROWS
 
-        # initial eval
         CURRENT_ITER_EVALS = []
         GLOBAL_CTX["current_iteration"] = 0
 
@@ -1235,7 +1262,6 @@ class TrackingPSO(PSO):
         self.best_per_iter.append(self.gbest_val)
         PSO_CONVERGENCE_ROWS.append(summarize_iteration_evals(0, CURRENT_ITER_EVALS))
 
-        # main loop
         for it in range(1, self.max_iter + 1):
             self.iter = it
             CURRENT_ITER_EVALS = []
@@ -1334,6 +1360,7 @@ def collect_results_with_pso(
         "pso_particle_evals": pso_particle_evals,
         "best_solution": best_solution,
         "node_voltages": node_voltages,
+        "node_sequence_components": raw.get("node_sequence_components", []),
         "transformer_phase_results": transformer_results,
         "pv_setpoints": pv_setpoints,
         "storage_setpoints": storage_rows,
@@ -1428,7 +1455,6 @@ def run_pso_global_critical() -> None:
     log_line(f"PV do sterowania Q: {len(pv_specs)}")
     log_line(f"Magazyn critical: node={critical_candidate.get('node')}")
 
-    # bazowy stan odniesienia
     apply_pv_q_setpoints(pv_specs, [0.0] * len(pv_specs))
     base_storage_rows = apply_storage_to_candidate(app, critical_candidate, zero_storage_rows())
 
@@ -1515,7 +1541,10 @@ def run_pso_global_critical() -> None:
         f"J_best={j_best:.6f}, "
         f"Umax={ind['Umax_pu']:.4f} pu, "
         f"Umin={ind['Umin_pu']:.4f} pu, "
-        f"P_export={ind['P_export_total_kW']:.2f} kW"
+        f"P_export={ind['P_export_total_kW']:.2f} kW, "
+        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
+        f"Fcelu_2={ind['Fcelu_2_A']:.4f} A, "
+        f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
 

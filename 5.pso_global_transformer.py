@@ -627,8 +627,7 @@ def collect_transformer_results(tr: Any) -> Dict[str, Any]:
         if i_avg > EPS else 0.0
     )
 
-    i_neutral = abs(sum(i_complex))
-    row["I_neutral_A"] = i_neutral
+    row["I_neutral_A"] = abs(sum(i_complex))
 
     return row
 
@@ -695,6 +694,11 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
     alpha0_vals: List[float] = []
     alpha2_vals: List[float] = []
+    u0_abs_vals: List[float] = []
+    u1_abs_vals: List[float] = []
+    u2_abs_vals: List[float] = []
+
+    node_sequence_rows: List[Dict[str, Any]] = []
 
     for row in raw["node_voltages"]:
         vals = []
@@ -724,16 +728,46 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
             u0, u1, u2 = calc_symmetrical_components(va, vb, vc)
 
+            u0_abs = abs(u0)
             u1_abs = abs(u1)
-            alpha0 = abs(u0) / u1_abs if u1_abs > EPS else math.nan
-            alpha2 = abs(u2) / u1_abs if u1_abs > EPS else math.nan
+            u2_abs = abs(u2)
+
+            alpha0 = u0_abs / u1_abs if u1_abs > EPS else math.nan
+            alpha2 = u2_abs / u1_abs if u1_abs > EPS else math.nan
 
             if math.isfinite(alpha0):
                 alpha0_vals.append(alpha0)
             if math.isfinite(alpha2):
                 alpha2_vals.append(alpha2)
+
+            if math.isfinite(u0_abs):
+                u0_abs_vals.append(u0_abs)
+            if math.isfinite(u1_abs):
+                u1_abs_vals.append(u1_abs)
+            if math.isfinite(u2_abs):
+                u2_abs_vals.append(u2_abs)
+
+            node_sequence_rows.append(
+                {
+                    "node": row.get("node", ""),
+                    "U0_abs_pu": u0_abs,
+                    "U1_abs_pu": u1_abs,
+                    "U2_abs_pu": u2_abs,
+                    "alpha0": alpha0,
+                    "alpha2": alpha2,
+                }
+            )
         except Exception:
-            pass
+            node_sequence_rows.append(
+                {
+                    "node": row.get("node", ""),
+                    "U0_abs_pu": math.nan,
+                    "U1_abs_pu": math.nan,
+                    "U2_abs_pu": math.nan,
+                    "alpha0": math.nan,
+                    "alpha2": math.nan,
+                }
+            )
 
     tr = raw["transformer_phase_results"][0] if raw["transformer_phase_results"] else {}
 
@@ -750,7 +784,11 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     p_storage_L1 = float(storage_rows[0].get("p_storage_kw") or 0.0) if len(storage_rows) > 0 else 0.0
     p_storage_L2 = float(storage_rows[1].get("p_storage_kw") or 0.0) if len(storage_rows) > 1 else 0.0
     p_storage_L3 = float(storage_rows[2].get("p_storage_kw") or 0.0) if len(storage_rows) > 2 else 0.0
+    p_storage_total = p_storage_L1 + p_storage_L2 + p_storage_L3
+    q_storage_total = sum(float(row.get("q_storage_kvar") or 0.0) for row in storage_rows)
 
+    udev_mean_1_00 = sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan
+    udev_mean_1_05 = sum(abs(v - 1.05) for v in voltages) / len(voltages) if voltages else math.nan
     udev_rms_1_00 = rms_deviation(voltages, 1.00)
     udev_rms_1_05 = rms_deviation(voltages, 1.05)
 
@@ -758,6 +796,9 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     alpha0_max = max(alpha0_vals) if alpha0_vals else math.nan
     alpha2_mean = sum(alpha2_vals) / len(alpha2_vals) if alpha2_vals else math.nan
     alpha2_max = max(alpha2_vals) if alpha2_vals else math.nan
+
+    alpha0_sum = sum(alpha0_vals) if alpha0_vals else math.nan
+    alpha2_sum = sum(alpha2_vals) if alpha2_vals else math.nan
 
     fcelu_3_voltage_component = 0.04 * (udev_rms_1_05 if math.isfinite(udev_rms_1_05) else 0.0)
     fcelu_3_alpha2_component = 0.58 * (alpha2_mean if math.isfinite(alpha2_mean) else 0.0)
@@ -825,17 +866,37 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     indicators = {
         "Umax_pu": max(voltages) if voltages else math.nan,
         "Umin_pu": min(voltages) if voltages else math.nan,
-        "Udev_mean_pu": sum(abs(v - 1.0) for v in voltages) / len(voltages) if voltages else math.nan,
+        "Udev_mean_pu": udev_mean_1_00,
         "Udev_max_pu": max(abs(v - 1.0) for v in voltages) if voltages else math.nan,
+        "Udev_rms_1_00": udev_rms_1_00,
+        "Udev_rms_1_05": udev_rms_1_05,
+        "Fcelu_1_1_00": udev_rms_1_00,
+        "Fcelu_1_1_05": udev_rms_1_05,
         "Fcelu_1_Udev_rms_1_00": udev_rms_1_00,
         "Fcelu_1_Udev_rms_1_05": udev_rms_1_05,
+        "Udev_mean_1_05_pu": udev_mean_1_05,
+
         "dU_phase_max_pu": max(phase_spreads) if phase_spreads else math.nan,
         "kU2_max_percent": max(ku2_vals) if ku2_vals else math.nan,
         "kU2_mean_percent": sum(ku2_vals) / len(ku2_vals) if ku2_vals else math.nan,
-        "alpha2_max": alpha2_max,
-        "alpha2_mean": alpha2_mean,
-        "alpha0_max": alpha0_max,
+
         "alpha0_mean": alpha0_mean,
+        "alpha0_max": alpha0_max,
+        "alpha2_mean": alpha2_mean,
+        "alpha2_max": alpha2_max,
+        "alpha0_sum": alpha0_sum,
+        "alpha2_sum": alpha2_sum,
+        "U0_abs_mean_pu": sum(u0_abs_vals) / len(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_mean_pu": sum(u1_abs_vals) / len(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_mean_pu": sum(u2_abs_vals) / len(u2_abs_vals) if u2_abs_vals else math.nan,
+        "U0_abs_max_pu": max(u0_abs_vals) if u0_abs_vals else math.nan,
+        "U1_abs_max_pu": max(u1_abs_vals) if u1_abs_vals else math.nan,
+        "U2_abs_max_pu": max(u2_abs_vals) if u2_abs_vals else math.nan,
+
+        "Fcelu_3_voltage_component": fcelu_3_voltage_component,
+        "Fcelu_3_alpha2_component": fcelu_3_alpha2_component,
+        "Fcelu_3_alpha0_component": fcelu_3_alpha0_component,
+        "Fcelu_3": fcelu_3,
         "Fcelu_3_weighted": fcelu_3,
 
         "I_tr_L1_A": float(tr.get("I_tr_L1_A") or 0.0),
@@ -845,6 +906,7 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "angle_I_tr_L2_deg": float(tr.get("angle_I_tr_L2_deg") or 0.0),
         "angle_I_tr_L3_deg": float(tr.get("angle_I_tr_L3_deg") or 0.0),
         "I_neutral_A": float(tr.get("I_neutral_A") or 0.0),
+        "Fcelu_2_A": float(tr.get("I_neutral_A") or 0.0),
         "I_unbalance_tr_percent": float(tr.get("I_unbalance_tr_percent") or 0.0),
 
         "P_tr_L1_kW": float(tr.get("P_tr_L1_kW") or 0.0),
@@ -865,6 +927,8 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "P_storage_L1_kW": p_storage_L1,
         "P_storage_L2_kW": p_storage_L2,
         "P_storage_L3_kW": p_storage_L3,
+        "P_storage_total_kW": p_storage_total,
+        "Q_storage_total_kvar": q_storage_total,
 
         "Jline_raw": jline_raw,
         "Jpen_raw": jpen_raw,
@@ -872,6 +936,7 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "constraint_violations": ";".join(violations),
     }
 
+    raw["node_sequence_components"] = node_sequence_rows
     return indicators
 
 
@@ -1053,6 +1118,10 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
             "iteration": iteration,
             "best_J": math.nan,
             "mean_J": math.nan,
+            "worst_J": math.nan,
+            "std_J": math.nan,
+            "n_feasible": 0,
+            "n_nonconverged": 0,
             "best_JU": math.nan,
             "best_JVU": math.nan,
             "best_Jline": math.nan,
@@ -1060,6 +1129,13 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
             "best_JI": math.nan,
             "best_Jpen": math.nan,
             "best_Jctrl": math.nan,
+            "mean_JU": math.nan,
+            "mean_JVU": math.nan,
+            "mean_Jline": math.nan,
+            "mean_Jexport": math.nan,
+            "mean_JI": math.nan,
+            "mean_Jpen": math.nan,
+            "mean_Jctrl": math.nan,
         }
 
     feasible = [e for e in evals if e.get("converged")]
@@ -1067,15 +1143,29 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
 
     if feasible:
         best_eval = min(feasible, key=lambda e: float(e["J_total"]))
+        mean_ju = sum(float(e["JU"]) for e in feasible) / len(feasible)
+        mean_jvu = sum(float(e["JVU"]) for e in feasible) / len(feasible)
+        mean_jline = sum(float(e["Jline"]) for e in feasible) / len(feasible)
+        mean_jexport = sum(float(e["Jexport"]) for e in feasible) / len(feasible)
+        mean_ji = sum(float(e["JI"]) for e in feasible) / len(feasible)
+        mean_jpen = sum(float(e["Jpen"]) for e in feasible) / len(feasible)
+        mean_jctrl = sum(float(e["Jctrl"]) for e in feasible) / len(feasible)
     else:
         best_eval = {}
+        mean_ju = mean_jvu = mean_jline = mean_jexport = mean_ji = mean_jpen = mean_jctrl = math.nan
 
     mean_j = sum(all_j) / len(all_j) if all_j else math.nan
+    worst_j = max(all_j) if all_j else math.nan
+    std_j = math.sqrt(sum((j - mean_j) ** 2 for j in all_j) / len(all_j)) if all_j else math.nan
 
     return {
         "iteration": iteration,
         "best_J": min(all_j) if all_j else math.nan,
         "mean_J": mean_j,
+        "worst_J": worst_j,
+        "std_J": std_j,
+        "n_feasible": len(feasible),
+        "n_nonconverged": len([e for e in evals if not e.get("converged")]),
         "best_JU": float(best_eval.get("JU", math.nan)),
         "best_JVU": float(best_eval.get("JVU", math.nan)),
         "best_Jline": float(best_eval.get("Jline", math.nan)),
@@ -1083,6 +1173,13 @@ def summarize_iteration_evals(iteration: int, evals: List[Dict[str, Any]]) -> Di
         "best_JI": float(best_eval.get("JI", math.nan)),
         "best_Jpen": float(best_eval.get("Jpen", math.nan)),
         "best_Jctrl": float(best_eval.get("Jctrl", math.nan)),
+        "mean_JU": mean_ju,
+        "mean_JVU": mean_jvu,
+        "mean_Jline": mean_jline,
+        "mean_Jexport": mean_jexport,
+        "mean_JI": mean_ji,
+        "mean_Jpen": mean_jpen,
+        "mean_Jctrl": mean_jctrl,
     }
 
 
@@ -1291,6 +1388,7 @@ def collect_results_with_pso(
         "pso_particle_evals": pso_particle_evals,
         "best_solution": best_solution,
         "node_voltages": node_voltages,
+        "node_sequence_components": raw.get("node_sequence_components", []),
         "transformer_phase_results": transformer_results,
         "pv_setpoints": pv_setpoints,
         "storage_setpoints": storage_rows,
@@ -1471,8 +1569,11 @@ def run_pso_global_transformer() -> None:
         f"J_best={j_best:.6f}, "
         f"P_export={ind['P_export_total_kW']:.2f} kW, "
         f"I_neutral={ind['I_neutral_A']:.2f} A, "
+        f"I_unbalance={ind['I_unbalance_tr_percent']:.2f}%, "
         f"Umax={ind['Umax_pu']:.4f} pu, "
-        f"Umin={ind['Umin_pu']:.4f} pu"
+        f"Umin={ind['Umin_pu']:.4f} pu, "
+        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
+        f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
 

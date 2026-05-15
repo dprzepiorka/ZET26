@@ -329,7 +329,7 @@ def set_other_generators_from_excel(app: Any) -> List[Dict[str, Any]]:
     return rows_out
 
 
-def load_storage_candidates() -> List[Dict[str, str]]:
+def load_storage_candidates() -> List[Dict[str, Any]]:
     rows = excel_sheet("StorageCandidates")
     return [
         {
@@ -352,7 +352,7 @@ def zero_storage_rows() -> List[Dict[str, Any]]:
     ]
 
 
-def choose_storage_candidate(candidates: List[Dict[str, str]], node_name: str = "") -> Dict[str, str]:
+def choose_storage_candidate(candidates: List[Dict[str, Any]], node_name: str = "") -> Dict[str, Any]:
     if not candidates:
         return {}
 
@@ -364,7 +364,7 @@ def choose_storage_candidate(candidates: List[Dict[str, str]], node_name: str = 
     return candidates[0]
 
 
-def apply_storage(app: Any, candidates: List[Dict[str, str]], rows: List[Dict[str, Any]], node_name: str = "") -> List[Dict[str, Any]]:
+def apply_storage(app: Any, candidates: List[Dict[str, Any]], rows: List[Dict[str, Any]], node_name: str = "") -> List[Dict[str, Any]]:
     cand = choose_storage_candidate(candidates, node_name)
     applied_rows: List[Dict[str, Any]] = []
 
@@ -767,6 +767,8 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "Udev_rms_1_05": udev_rms_1_05,
         "Fcelu_1_1_00": udev_rms_1_00,
         "Fcelu_1_1_05": udev_rms_1_05,
+        "Fcelu_1_Udev_rms_1_00": udev_rms_1_00,
+        "Fcelu_1_Udev_rms_1_05": udev_rms_1_05,
         "Udev_mean_1_05_pu": udev_mean_1_05,
 
         # prądy transformatora
@@ -780,6 +782,7 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
 
         # Fcelu_2
         "Fcelu_2_A": fcelu_2,
+        "I_neutral_A": fcelu_2,
 
         # moce transformatora
         "P_tr_L1_kW": p_tr[0],
@@ -823,6 +826,7 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
         "Fcelu_3_alpha2_component": fcelu_3_alpha2_component,
         "Fcelu_3_alpha0_component": fcelu_3_alpha0_component,
         "Fcelu_3": fcelu_3,
+        "Fcelu_3_weighted": fcelu_3,
 
         # ograniczenia
         "constraint_violations_count": len(violations),
@@ -952,9 +956,9 @@ def run_base_case() -> None:
         f"Umax={ind['Umax_pu']:.4f} pu, "
         f"Umin={ind['Umin_pu']:.4f} pu, "
         f"eksport={ind['P_export_total_kW']:.2f} kW, "
-        f"Fcelu_1(1.05)={ind['Fcelu_1_1_05']:.6f}, "
+        f"Fcelu_1(1.05)={ind['Fcelu_1_Udev_rms_1_05']:.6f}, "
         f"Fcelu_2={ind['Fcelu_2_A']:.4f} A, "
-        f"Fcelu_3={ind['Fcelu_3']:.6f}"
+        f"Fcelu_3={ind['Fcelu_3_weighted']:.6f}"
     )
     log_line(f"Zapisano wyniki do: {OUT_FILE}")
 
