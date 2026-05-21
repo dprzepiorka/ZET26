@@ -1,11 +1,11 @@
 === PSO GLOBAL TRANSFORMER LOG START ===
-[2026-05-15 12:06:39] Start pso_global_transformer.py
-[2026-05-15 12:06:40] Wczytano Excel: input_data.xlsx
-[2026-05-15 12:06:40] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
-[2026-05-15 12:06:40] Config: Vmin=0.9, Uref=1.0, Vmax=1.1, Uallowed=[0.95, 1.05], Utol=0.01, PexportRef=100.0, K=(100.0, 100.0, 100.0), PSO particles=5, iter=10, seed=42
-[2026-05-15 12:06:40] Ustawianie modelu z Excela...
-[2026-05-15 12:06:40] PV do sterowania Q: 165
-[2026-05-15 12:06:40] Magazyn transformer: node=2
-[2026-05-15 12:06:40] Uruchamiam PSO: particles=5, iter=10, dim=168
-[2026-05-15 12:06:47] Zakończono. F2_best=115349.410163, F1_report=115349.340757, P_export=0.00 kW, P_import=41.78 kW, I_unbalance=31.3121 %, I_neutral=10.54 A, Umax=1.0914 pu, Umin=1.0180 pu
-[2026-05-15 12:06:47] Zapisano wyniki do: results\results_pso_global_transformer.xlsx
+[2026-05-19 22:11:19] Start pso_global_transformer.py
+[2026-05-19 22:11:19] Wczytano Excel: input_data.xlsx
+[2026-05-19 22:11:19] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-19 22:11:19] Config: Vmin=0.9, Uref=1.0, Vmax=1.1, Uallowed=[0.95, 1.05], Utol=0.01, PexportRef=250.0, K=(100.0, 100.0, 100.0), PSO particles=100, iter=1000, seed=42
+[2026-05-19 22:11:20] Ustawianie modelu z Excela...
+[2026-05-19 22:11:20] PV do sterowania Q: 165
+[2026-05-19 22:11:20] Magazyn transformer: node=2
+[2026-05-19 22:11:20] Uruchamiam PSO: particles=100, iter=1000, dim=168
+[2026-05-20 01:40:23] Zakończono. F2_best=342332.736037, F1_report=342332.652732, P_export=4.07 kW, P_import=16.45 kW, I_unbalance=35.5399 %, I_neutral=19.09 A, Umax=1.1200 pu, Umin=1.0188 pu
+[2026-05-20 01:40:23] Zapisano wyniki do: results\results_pso_global_transformer.xlsx

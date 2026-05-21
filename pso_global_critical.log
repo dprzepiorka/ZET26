@@ -1,11 +1,11 @@
 === PSO GLOBAL CRITICAL LOG START ===
-[2026-05-15 12:09:51] Start pso_global_critical.py
-[2026-05-15 12:09:51] Wczytano Excel: input_data.xlsx
-[2026-05-15 12:09:51] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
-[2026-05-15 12:09:51] Config: Vmin=0.9, Uref=1.0, Vmax=1.1, Uallowed=[0.95, 1.05], Utol=0.01, PexportRef=100.0, K=(100.0, 100.0, 100.0), PSO particles=5, iter=10, seed=42
-[2026-05-15 12:09:51] Ustawianie modelu z Excela...
-[2026-05-15 12:09:51] PV do sterowania Q: 165
-[2026-05-15 12:09:51] Magazyn critical: node=101
-[2026-05-15 12:09:51] Uruchamiam PSO: particles=5, iter=10, dim=168
-[2026-05-15 12:09:59] Zakończono. F1_best=2125.558479, F2_report=2125.745090, Umax=1.0583 pu, Umin=0.9324 pu, P_export=7.11 kW, P_import=0.00 kW, Fcelu_2=6.5616 A, Fcelu_3=0.009231
-[2026-05-15 12:09:59] Zapisano wyniki do: results\results_pso_global_critical.xlsx
+[2026-05-19 13:58:34] Start pso_global_critical.py
+[2026-05-19 13:58:35] Wczytano Excel: input_data.xlsx
+[2026-05-19 13:58:35] Arkusze: Bus, ControlConfig, Line, Loads, PV, StatGen, StorageCandidates, StorageCritical, StorageTransformerControl, Vars
+[2026-05-19 13:58:35] Config: Vmin=0.9, Uref=1.0, Vmax=1.1, Uallowed=[0.95, 1.05], Utol=0.01, PexportRef=250.0, K=(100.0, 100.0, 100.0), PSO particles=100, iter=1000, seed=42
+[2026-05-19 13:58:35] Ustawianie modelu z Excela...
+[2026-05-19 13:58:35] PV do sterowania Q: 165
+[2026-05-19 13:58:35] Magazyn critical: node=101
+[2026-05-19 13:58:35] Uruchamiam PSO: particles=100, iter=1000, dim=168
+[2026-05-19 17:19:19] Zakończono. F1_best=991.077695, F2_report=991.197717, Umax=1.0571 pu, Umin=0.9425 pu, P_export=28.87 kW, P_import=0.00 kW, Fcelu_2=27.4096 A, Fcelu_3=0.010174
+[2026-05-19 17:19:19] Zapisano wyniki do: results\results_pso_global_critical.xlsx
