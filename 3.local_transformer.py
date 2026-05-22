@@ -44,11 +44,11 @@ VOLTAGE_MIN_PU = 0.90
 TARGET_VOLTAGE_PU = 1.00
 VOLTAGE_MAX_PU = 1.10
 
-U_MIN_ALLOWED_OBJ = 0.95
-U_MAX_ALLOWED_OBJ = 1.05
+U_MIN_ALLOWED_OBJ = 0.9
+U_MAX_ALLOWED_OBJ = 1.1
 U_TOL_PU = 0.01
 
-P_EXPORT_REF_KW = 100.0
+P_EXPORT_REF_KW = 250 * 0.95
 
 K_U = 100.0
 K_L = 100.0
@@ -907,11 +907,32 @@ def calc_ju(raw: Dict[str, List[Dict[str, Any]]]) -> float:
     return math.sqrt(sum((u - TARGET_VOLTAGE_PU) ** 2 for u in vals) / len(vals))
 
 
-def calc_ja(raw: Dict[str, List[Dict[str, Any]]], alpha2_max: float, ku2_max_percent: float) -> float:
-    if math.isfinite(alpha2_max):
-        return alpha2_max
-    if math.isfinite(ku2_max_percent):
-        return ku2_max_percent / 100.0
+def calc_ja(raw: Dict[str, List[Dict[str, Any]]]) -> float:
+    alpha2_vals: List[float] = []
+
+    for row in raw.get("node_sequence_components", []):
+        try:
+            a2 = float(row.get("alpha2"))
+            if math.isfinite(a2):
+                alpha2_vals.append(max(0.0, a2))
+        except Exception:
+            continue
+
+    if alpha2_vals:
+        return math.sqrt(sum(v * v for v in alpha2_vals) / len(alpha2_vals))
+
+    ku2_vals: List[float] = []
+    for row in raw.get("node_voltages", []):
+        try:
+            ku2 = float(row.get("kU2_percent"))
+            if math.isfinite(ku2):
+                ku2_vals.append(max(0.0, ku2 / 100.0))
+        except Exception:
+            continue
+
+    if ku2_vals:
+        return math.sqrt(sum(v * v for v in ku2_vals) / len(ku2_vals))
+
     return math.nan
 
 
@@ -930,8 +951,8 @@ def calc_f1(ju: float, ja: float, penalty_u: float, penalty_lines: float, penalt
     ju_used = 0.0 if not math.isfinite(ju) else ju
     ja_used = 0.0 if not math.isfinite(ja) else ja
     return (
-        0.70 * ju_used
-        + 0.30 * ja_used
+        0.50 * ju_used
+        + 0.50 * ja_used
         + K_U * penalty_u
         + K_L * penalty_lines
         + K_T * penalty_trafo
@@ -943,9 +964,9 @@ def calc_f2(ju: float, ji: float, jp: float, penalty_u: float, penalty_lines: fl
     ji_used = 0.0 if not math.isfinite(ji) else ji
     jp_used = 0.0 if not math.isfinite(jp) else jp
     return (
-        0.20 * ju_used
-        + 0.35 * ji_used
-        + 0.45 * jp_used
+        0.33 * ju_used
+        + 0.33 * ji_used
+        + 0.33 * jp_used
         + K_U * penalty_u
         + K_L * penalty_lines
         + K_T * penalty_trafo
@@ -1557,7 +1578,7 @@ def calculate_indicators(raw: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]
     penalty_trafo = calc_penalty_trafo(raw_for_penalty)
 
     ju = calc_ju(raw_for_penalty)
-    ja = calc_ja(raw_for_penalty, alpha2_max, max(ku2_vals) if ku2_vals else math.nan)
+    ja = calc_ja(raw)
     ji = calc_ji(i_unb)
     jp = calc_jp(p_export_total)
 
